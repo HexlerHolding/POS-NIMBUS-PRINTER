@@ -48,7 +48,7 @@ function generateReceiptHTML(receipt) {
               font-family: 'Courier New', monospace;
               font-size: 14px;
               width: 72mm;
-              margin: 0;
+              margin: -5px 0 0 0;
               padding: 10px 5px;
           }
           .logo {
@@ -129,6 +129,10 @@ function generateReceiptHTML(receipt) {
           <span class="left bold">Order #: ${receipt.orderId || 'TEST-123'}</span>
       </div>
       
+      <div class="item-row" style="margin-bottom: 8px;">
+          <span class="left bold">Customer: ${receipt.customerName || 'Walk-in'}</span>
+      </div>
+      
       <div class="divider"></div>
       
       ${receipt.items ? receipt.items.map(item => `
@@ -166,6 +170,16 @@ function generateReceiptHTML(receipt) {
           <span class="left">Date:</span>
           <span class="right">${receipt.date ? new Date(receipt.date).toLocaleString() : new Date().toLocaleString()}</span>
       </div>
+      
+      <!-- 6-7 lines of padding after date -->
+      <div style="line-height: 1;">
+          <br><br><br><br>
+      </div>
+      
+      <!-- Three small dots at the bottom center -->
+      <div style="text-align: center;">
+          <span style="font-size: 15px;">Powered by HexlerTech</span>
+      </div>
   </body>
   </html>
   `;
@@ -184,10 +198,11 @@ async function generateAndSavePDF(receipt, outputPath) {
 
     await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
 
-    const baseHeight = 120;
+    const baseHeight = 130; // Increased for customer name line
     const itemHeight = 8;
+    const bottomPadding = 20; // Additional padding for 6-7 lines + dots
     const itemCount = receipt.items ? receipt.items.length : 2;
-    const estimatedHeight = baseHeight + (itemCount * itemHeight);
+    const estimatedHeight = baseHeight + (itemCount * itemHeight) + bottomPadding;
 
     await page.pdf({
       path: outputPath,
@@ -213,12 +228,14 @@ async function generateAndSavePDF(receipt, outputPath) {
 
 async function printPDFToThermalPrinter(pdfPath, printerName = null) {
   try {
-    console.log(`Attempting to print PDF to ${printerName || 'default'} printer...`);
+    // Use printerName from parameter, or fall back to environment variable
+    const finalPrinterName = printerName || process.env.PRINTER_NAME || null;
+    console.log(`Attempting to print PDF to ${finalPrinterName || 'default'} printer...`);
 
     if (printer) {
       console.log('Using pdf-to-printer module for printing...');
 
-      const options = printerName ? { printer: printerName, copies: 2 } : {};
+      const options = { printer: finalPrinterName, copies: 1, scale: 'noscale' , paperSize:'A7', margin:'0'}; ;
 
       try {
         await printer.print(pdfPath, options);
