@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(C:\\Users\\Boredaf\\Documents\\HexlerTech\\Nimbus\\backend\\Models/**)",
+      "Read(C:\\Users\\Boredaf\\Documents\\HexlerTech\\Nimbus\\backend/**)",
+      "Read(C:\\Users\\Boredaf\\Documents\\HexlerTech\\Nimbus\\backend\\seeders/**)",
+      "Read(C:\\Users\\Boredaf\\Documents\\HexlerTech\\Nimbus\\frontend/**)",
+      "Read(C:\\Users\\Boredaf\\Documents\\HexlerTech\\Nimbus\\backend/**)",
+      "Read(C:\\Users\\Boredaf\\Documents\\HexlerTech\\Nimbus\\backend/**)",
+      "Read(C:\\Users\\Boredaf\\Documents\\HexlerTech\\Nimbus\\backend/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
