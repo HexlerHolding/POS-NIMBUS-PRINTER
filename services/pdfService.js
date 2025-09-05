@@ -53,7 +53,7 @@ function generateKitchenReceiptHTML(receipt) {
               font-size: 14px;
               width: 58mm;
               margin: -5px 0 0 0;
-              padding: 8px 3px;
+              padding: 8px 8px 8px 6px;
           }
           .logo {
               text-align: center;
@@ -338,7 +338,7 @@ async function generateAndSaveKitchenPDF(receipt, outputPath) {
         top: '3mm',
         right: '2mm',
         bottom: '3mm',
-        left: '2mm'
+        left: '4mm'
       },
       printBackground: true
     });
@@ -393,7 +393,7 @@ async function generateAndSavePDF(receipt, outputPath) {
   }
 }
 
-async function printPDFToThermalPrinter(pdfPath, printerName = null) {
+async function printPDFToThermalPrinter(pdfPath, printerName = null, paperSize = 'A7') {
   try {
     // Use printerName from parameter, or fall back to environment variable
     const finalPrinterName = printerName || null;
@@ -402,8 +402,8 @@ async function printPDFToThermalPrinter(pdfPath, printerName = null) {
     if (printer) {
       console.log('Using pdf-to-printer module for printing...');
 
-      const options = { printer: finalPrinterName, copies: 1, scale: 'noscale', paperSize: 'A7', margin: '0' };;
-
+      const options = { printer: finalPrinterName, copies: 1, scale: 'noscale', paperSize, margin: '0' };
+      console.log('Print options:', options);
       try {
         await printer.print(pdfPath, options);
         console.log('Print job sent successfully using pdf-to-printer');
@@ -440,26 +440,26 @@ async function printOrderToThermalPrinters(receiptData) {
     const results = {};
 
     // Print to customer printer (main printer)
-    try {
-      const customerPrintResult = await printPDFToThermalPrinter(customerOutputPath, process.env.PRINTER_NAME);
-      results.customer = { success: true, message: customerPrintResult };
-      console.log('Customer receipt printed successfully');
-    } catch (error) {
-      results.customer = { success: false, error: error.message };
-      console.error('Failed to print customer receipt:', error);
-    }
-    //Print second copy to customer printer 
-    try {
-      const customerPrintResult = await printPDFToThermalPrinter(customerOutputPath, process.env.PRINTER_NAME);
-      results.customer2 = { success: true, message: customerPrintResult };
-      console.log('Customer receipt 2 printed successfully');
-    } catch (error) {
-      results.customer2 = { success: false, error: error.message };
-      console.error('Failed to print customer receipt 2:', error);
-    }
+    // try {
+    //   const customerPrintResult = await printPDFToThermalPrinter(customerOutputPath, process.env.PRINTER_NAME);
+    //   results.customer = { success: true, message: customerPrintResult };
+    //   console.log('Customer receipt printed successfully');
+    // } catch (error) {
+    //   results.customer = { success: false, error: error.message };
+    //   console.error('Failed to print customer receipt:', error);
+    // }
+    // //Print second copy to customer printer 
+    // try {
+    //   const customerPrintResult = await printPDFToThermalPrinter(customerOutputPath, process.env.PRINTER_NAME);
+    //   results.customer2 = { success: true, message: customerPrintResult };
+    //   console.log('Customer receipt 2 printed successfully');
+    // } catch (error) {
+    //   results.customer2 = { success: false, error: error.message };
+    //   console.error('Failed to print customer receipt 2:', error);
+    // }
     // Print to kitchen printer
     try {
-      const kitchenPrintResult = await printPDFToThermalPrinter(kitchenOutputPath, process.env.PRINTER2_NAME);
+      const kitchenPrintResult = await printPDFToThermalPrinter(kitchenOutputPath, process.env.PRINTER2_NAME, 'A8');
       results.kitchen = { success: true, message: kitchenPrintResult };
       console.log('Kitchen receipt printed successfully');
     } catch (error) {
