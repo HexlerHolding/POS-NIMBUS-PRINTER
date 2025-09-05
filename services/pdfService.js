@@ -1,6 +1,10 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
+
+
+// Attempt to require pdf-to-printer, but handle if not installed
 
 let printer;
 try {
@@ -18,11 +22,133 @@ if (!fs.existsSync(tempDir)) {
 function formatCurrency(amount) {
   const num = parseFloat(amount);
   if (isNaN(num)) return '0.00';
-  
+
   return num.toLocaleString('en-IN', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   });
+}
+
+function generateKitchenReceiptHTML(receipt) {
+  let logoBase64 = '';
+  try {
+    const logoPath = process.env.LOGO_PATH || path.join(__dirname, '..', 'logo.png');
+    if (fs.existsSync(logoPath)) {
+      const logoFile = fs.readFileSync(logoPath);
+      logoBase64 = `data:image/png;base64,${logoFile.toString('base64')}`;
+    }
+  } catch (error) {
+    console.error('Error loading logo:', error);
+  }
+
+  return `
+  <!DOCTYPE html>
+  <html>
+  <head>
+      <meta charset="utf-8">
+      <title>Kitchen Receipt</title>
+      <style>
+          body {
+              font-family: 'Courier New', monospace;
+              font-size: 14px;
+              width: 58mm;
+              margin: -5px 0 0 0;
+              padding: 8px 3px;
+          }
+          .logo {
+              text-align: center;
+              margin-bottom: 15px;
+          }
+          .logo img {
+              max-width: 120px;
+              height: auto;
+          }
+          .header {
+              text-align: center;
+              margin-bottom: 10px;
+          }
+          .business-name {
+              font-size: 16px;
+              font-weight: bold;
+              margin-bottom: 4px;
+          }
+          .divider {
+              border-bottom: 1px dashed #000;
+              margin: 8px 0;
+              width: 100%;
+          }
+          .item-row {
+              display: flex;
+              justify-content: space-between;
+              margin: 6px 0;
+              font-weight: 600;
+          }
+          .left {
+              text-align: left;
+              flex: 1;
+              letter-spacing: 0.1px;
+              line-height: 1.2;
+          }
+          .center {
+              text-align: center;
+          }
+          .bold {
+              font-weight: bold;
+          }
+          .order-number {
+              font-size: 16px;
+              margin-bottom: 8px;
+          }
+          .kitchen-title {
+              font-size: 18px;
+              font-weight: bold;
+              text-align: center;
+              margin: 12px 0;
+              text-decoration: underline;
+          }
+      </style>
+  </head>
+  <body>
+      <div class="logo">
+          ${logoBase64 ? `<img src="${logoBase64}" alt="${receipt.businessName || process.env.BUSINESS_NAME || 'NIMBUS POS'} Logo">` :
+      `<div style="font-size: 20px; font-weight: bold;">LOGO</div>`}
+      </div>
+      
+      <div class="kitchen-title">KITCHEN ORDER</div>
+      
+      <div class="divider"></div>
+      
+      <div class="item-row order-number">
+          <span class="left bold">Order #: ${receipt.orderId || 'TEST-123'}</span>
+      </div>
+      
+      <div class="item-row" style="margin-bottom: 10px;">
+          <span class="left bold">Customer: ${receipt.customerName || 'Walk-in'}</span>
+      </div>
+      
+      <div class="divider"></div>
+      
+      ${receipt.items ? receipt.items.map(item => `
+          <div class="item-row">
+              <span class="left"><strong style="min-width: 16px; display: inline-block; font-size: 16px;">${item.quantity}x</strong> ${item.name}</span>
+          </div>
+      `).join('') : ''}
+      
+      <div class="divider"></div>
+      
+      <div class="item-row" style="margin-top: 12px; font-size: 14px; font-weight: bold;">
+          <span class="left">Date:</span>
+          <span class="right">${receipt.date ? new Date(receipt.date).toLocaleString() : new Date().toLocaleString()}</span>
+      </div>
+      
+      <!-- Padding for kitchen use -->
+      <div style="line-height: 1;">
+          <br><br><br><br><br>
+      </div>
+      
+  </body>
+  </html>
+  `;
 }
 
 function generateReceiptHTML(receipt) {
@@ -185,6 +311,47 @@ function generateReceiptHTML(receipt) {
   `;
 }
 
+async function generateAndSaveKitchenPDF(receipt, outputPath) {
+  const htmlContent = generateKitchenReceiptHTML(receipt);
+  const htmlPath = path.join(tempDir, `kitchen-receipt-${Date.now()}.html`);
+
+  fs.writeFileSync(htmlPath, htmlContent);
+  console.log(`Kitchen HTML file saved to: ${htmlPath}`);
+
+  try {
+    const browser = await puppeteer.launch({ headless: 'new' });
+    const page = await browser.newPage();
+
+    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+
+    const baseHeight = 90; // Base height for kitchen receipt (smaller for 58mm)
+    const itemHeight = 9; // Height per item for 58mm printer
+    const bottomPadding = 25; // Extra padding for kitchen use
+    const itemCount = receipt.items ? receipt.items.length : 2;
+    const estimatedHeight = baseHeight + (itemCount * itemHeight) + bottomPadding;
+
+    await page.pdf({
+      path: outputPath,
+      width: '58mm',
+      height: `${estimatedHeight}mm`,
+      margin: {
+        top: '3mm',
+        right: '2mm',
+        bottom: '3mm',
+        left: '2mm'
+      },
+      printBackground: true
+    });
+
+    await browser.close();
+    console.log(`Kitchen PDF file saved to: ${outputPath}`);
+    return true;
+  } catch (error) {
+    console.error('Error generating kitchen PDF:', error);
+    return false;
+  }
+}
+
 async function generateAndSavePDF(receipt, outputPath) {
   const htmlContent = generateReceiptHTML(receipt);
   const htmlPath = path.join(tempDir, `receipt-${Date.now()}.html`);
@@ -229,13 +396,13 @@ async function generateAndSavePDF(receipt, outputPath) {
 async function printPDFToThermalPrinter(pdfPath, printerName = null) {
   try {
     // Use printerName from parameter, or fall back to environment variable
-    const finalPrinterName = printerName || process.env.PRINTER_NAME || null;
+    const finalPrinterName = printerName || null;
     console.log(`Attempting to print PDF to ${finalPrinterName || 'default'} printer...`);
 
     if (printer) {
       console.log('Using pdf-to-printer module for printing...');
 
-      const options = { printer: finalPrinterName, copies: 1, scale: 'noscale' , paperSize:'A7', margin:'0'}; ;
+      const options = { printer: finalPrinterName, copies: 1, scale: 'noscale', paperSize: 'A7', margin: '0' };;
 
       try {
         await printer.print(pdfPath, options);
@@ -254,7 +421,62 @@ async function printPDFToThermalPrinter(pdfPath, printerName = null) {
   }
 }
 
+async function printOrderToThermalPrinters(receiptData) {
+  try {
+    const timestamp = Date.now();
+    const customerOutputPath = path.join(__dirname, '..', 'temp', `customer-receipt-${timestamp}.pdf`);
+    const kitchenOutputPath = path.join(__dirname, '..', 'temp', `kitchen-receipt-${timestamp}.pdf`);
+
+    // Generate customer receipt
+    const customerPdfGenerated = await generateAndSavePDF(receiptData, customerOutputPath);
+
+    // Generate kitchen receipt
+    const kitchenPdfGenerated = await generateAndSaveKitchenPDF(receiptData, kitchenOutputPath);
+
+    if (!customerPdfGenerated || !kitchenPdfGenerated) {
+      throw new Error('Failed to generate PDF receipts');
+    }
+
+    const results = {};
+
+    // Print to customer printer (main printer)
+    try {
+      const customerPrintResult = await printPDFToThermalPrinter(customerOutputPath, process.env.PRINTER_NAME);
+      results.customer = { success: true, message: customerPrintResult };
+      console.log('Customer receipt printed successfully');
+    } catch (error) {
+      results.customer = { success: false, error: error.message };
+      console.error('Failed to print customer receipt:', error);
+    }
+    //Print second copy to customer printer 
+    try {
+      const customerPrintResult = await printPDFToThermalPrinter(customerOutputPath, process.env.PRINTER_NAME);
+      results.customer2 = { success: true, message: customerPrintResult };
+      console.log('Customer receipt 2 printed successfully');
+    } catch (error) {
+      results.customer2 = { success: false, error: error.message };
+      console.error('Failed to print customer receipt 2:', error);
+    }
+    // Print to kitchen printer
+    try {
+      const kitchenPrintResult = await printPDFToThermalPrinter(kitchenOutputPath, process.env.PRINTER2_NAME);
+      results.kitchen = { success: true, message: kitchenPrintResult };
+      console.log('Kitchen receipt printed successfully');
+    } catch (error) {
+      results.kitchen = { success: false, error: error.message };
+      console.error('Failed to print kitchen receipt:', error);
+    }
+
+    return results;
+  } catch (error) {
+    console.error('Error in printOrderToThermalPrinters:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   generateAndSavePDF,
+  generateAndSaveKitchenPDF,
   printPDFToThermalPrinter,
+  printOrderToThermalPrinters,
 };

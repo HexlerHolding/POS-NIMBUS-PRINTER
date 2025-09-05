@@ -29,25 +29,15 @@ const sampleReceipt = {
   businessAddress: '123 Main Street',
   businessPhone: '(555) 123-4567',
   orderId: 'TEST-123',
+  customerName: 'John Smith',
   date: new Date(),
   cashier: 'John Doe',
   items: [
-    { name: 'Hamburger', quantity: 1, price: 5000.99 },
-    { name: 'Hamburger', quantity: 1, price: 5000.99 },
-    { name: 'Hamburger', quantity: 1, price: 5000.99 },
-    { name: 'Hamburger', quantity: 1, price: 5000.99 },
-    { name: 'Hamburger', quantity: 1, price: 5000.99 },
-    { name: 'Hamburger', quantity: 1, price: 5000.99 },
-    { name: 'Hamburger', quantity: 1, price: 5000.99 },
-    { name: 'Hamburger', quantity: 1, price: 5000.99 },
-    { name: 'Hamburger', quantity: 1, price: 5000.99 },
+    { name: 'Hamburger', quantity: 2, price: 500.99 },
     { name: 'French Fries', quantity: 1, price: 2.99 },
-    { name: 'Soda (Large)', quantity: 22, price: 1.99 },
+    { name: 'Soda (Large)', quantity: 3, price: 1.99 },
     { name: 'Apple Pie', quantity: 1, price: 3.49 },
-    { name: 'Coffee with extra long name to test wrapping', quantity: 1, price: 2333.50 },
-    { name: 'Coffee with extra long name to test wrapping', quantity: 1, price: 2333.50 },
-    { name: 'Coffee with extra long name to test wrapping', quantity: 1, price: 2333.50 },
-    { name: 'Coffee with extra long name to test wrapping', quantity: 1, price: 2333.50 }
+    { name: 'Coffee with extra long name', quantity: 1, price: 233.50 }
   ],
   subtotal: 1600.45,
   tax: 1.65,
@@ -300,6 +290,60 @@ async function printPDFToThermalPrinter(pdfPath, printerName = null) {
 }
 
 
+// Test kitchen printer functionality
+async function testKitchenPrinter() {
+  console.log('\n---- Testing Kitchen Printer ----');
+  
+  const { generateAndSaveKitchenPDF } = require('./services/pdfService');
+  
+  try {
+    const kitchenPdfPath = path.join(outputDir, 'kitchen-receipt.pdf');
+    const success = await generateAndSaveKitchenPDF(sampleReceipt, kitchenPdfPath);
+    
+    if (success) {
+      console.log('Kitchen receipt PDF generated successfully');
+      
+      // Try printing to kitchen printer
+      try {
+        console.log('Printing to kitchen printer (POS-58)...');
+        await printPDFToThermalPrinter(kitchenPdfPath, 'POS-58');
+        console.log('Kitchen receipt printed successfully!');
+      } catch (printError) {
+        console.error('Kitchen printing failed:', printError);
+      }
+    }
+  } catch (error) {
+    console.error('Error testing kitchen printer:', error);
+  }
+}
+
+// Test dual printer functionality
+async function testDualPrinters() {
+  console.log('\n---- Testing Dual Printer System ----');
+  
+  const { printOrderToThermalPrinters } = require('./services/pdfService');
+  
+  try {
+    const results = await printOrderToThermalPrinters(sampleReceipt);
+    console.log('Dual printer results:', JSON.stringify(results, null, 2));
+    
+    if (results.customer && results.customer.success) {
+      console.log('✓ Customer receipt printed successfully');
+    } else {
+      console.log('✗ Customer receipt failed');
+    }
+    
+    if (results.kitchen && results.kitchen.success) {
+      console.log('✓ Kitchen receipt printed successfully');
+    } else {
+      console.log('✗ Kitchen receipt failed');
+    }
+    
+  } catch (error) {
+    console.error('Error testing dual printers:', error);
+  }
+}
+
 // Main function to run tests
 async function runTests() {
   console.log('---- Receipt PDF Generator Test ----');
@@ -310,8 +354,14 @@ async function runTests() {
     const receiptPdfPath = path.join(outputDir, 'receipt.pdf');
     await generateAndSavePDF(sampleReceipt, receiptPdfPath);
 
+    // Test kitchen printer
+    await testKitchenPrinter();
+    
+    // Test dual printer system
+    await testDualPrinters();
+
     // Test printing the receipt PDF to the thermal printer
-    console.log('\nTesting print to thermal printer...');
+    console.log('\nTesting print to main thermal printer...');
 
     try {
       // List available printers first
@@ -333,8 +383,6 @@ async function runTests() {
       console.error('Printing failed:', printError);
       console.log('Check that your printer is connected and properly configured');
     }
-
-
 
   } catch (error) {
     console.error('Error running tests:', error);

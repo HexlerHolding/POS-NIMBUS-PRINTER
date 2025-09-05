@@ -1,40 +1,73 @@
 const express = require('express');
 const cors = require('cors');
-const { generateAndSavePDF, printPDFToThermalPrinter } = require('./services/pdfService');
+const { generateAndSavePDF, printPDFToThermalPrinter, printOrderToThermalPrinters } = require('./services/pdfService');
 const { validateReceiptData } = require('./middleware/validation');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3002;
 
-app.use(cors());
+// Handle preflight OPTIONS requests first
+app.options('*', (req, res) => {
+  // Set allowed origins
+  const allowedOrigins = ['https://pos.nimbus360.org', 'http://localhost:3000', 'https://nimbus360.org'];
+  const origin = req.headers.origin;
+  
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
+  res.status(204).end();
+});
+
+// Regular CORS for non-OPTIONS requests
+app.use(cors({
+  origin: ['https://pos.nimbus360.org', 'http://localhost:3000', 'https://nimbus360.org'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Add middleware to handle private network requests from secure origins
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  next();
+});
+
 app.use(express.json());
+
 
 app.post('/api/print', validateReceiptData, async (req, res) => {
   try {
-    const { receiptData, printerName } = req.body;
-    const outputPath = path.join(__dirname, 'temp', `receipt-${Date.now()}.pdf`);
+    const { receiptData } = req.body;
     
-    const pdfGenerated = await generateAndSavePDF(receiptData, outputPath);
+    const printResults = await printOrderToThermalPrinters(receiptData);
     
-    if (!pdfGenerated) {
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to generate PDF'
-      });
-    }
-    
-    const printResult = await printPDFToThermalPrinter(outputPath, printerName);
+    const customerSuccess = printResults.customer && printResults.customer.success;
+    const kitchenSuccess = printResults.kitchen && printResults.kitchen.success;
     
     res.json({
-      success: true,
-      message: 'Print job sent successfully',
-      result: printResult
+      success: customerSuccess || kitchenSuccess, // Success if at least one printer worked
+      message: 'Order print job completed',
+      results: {
+        customer: printResults.customer,
+        kitchen: printResults.kitchen
+      },
+      summary: {
+        customerPrinted: customerSuccess,
+        kitchenPrinted: kitchenSuccess,
+        totalPrinted: (customerSuccess ? 1 : 0) + (kitchenSuccess ? 1 : 0)
+      }
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Error printing receipt',
+      message: 'Error printing order receipts',
       error: error.message
     });
   }
