@@ -143,9 +143,13 @@ function generateKitchenReceiptHTML(receipt) {
       
       <!-- Padding for kitchen use -->
       <div style="line-height: 1;">
-          <br><br><br><br><br>
+          <br><br><br><br>
       </div>
       
+      <!-- Three small dots at the bottom center -->
+      <div style="text-align: center;">
+          <span style="font-size: 15px;">• • •</span>
+      </div>
   </body>
   </html>
   `;
@@ -304,7 +308,7 @@ function generateReceiptHTML(receipt) {
       
       <!-- Three small dots at the bottom center -->
       <div style="text-align: center;">
-          <span style="font-size: 15px;">Powered by HexlerTech</span>
+          <span style="font-size: 15px;">• • •</span>
       </div>
   </body>
   </html>
