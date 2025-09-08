@@ -11,7 +11,8 @@
       "Read(/D:\\Work\\HexlerTech\\Nimbus\\Nimbus_Printer/**)",
       "Read(/D:\\Work\\HexlerTech\\Nimbus\\Nimbus_Printer/**)",
       "Read(/D:\\Work\\HexlerTech\\Nimbus\\Nimbus_Printer\\services/**)",
-      "Read(/D:\\Work\\HexlerTech\\Nimbus\\Nimbus_Printer/**)"
+      "Read(/D:\\Work\\HexlerTech\\Nimbus\\Nimbus_Printer/**)",
+      "Read(/D:\\Work\\HexlerTech\\Nimbus\\Nimbus_Printer\\middleware/**)"
     ],
     "deny": [],
     "ask": []

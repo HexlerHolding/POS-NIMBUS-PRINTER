@@ -431,6 +431,13 @@ async function printOrderToThermalPrinters(receiptData) {
     const customerOutputPath = path.join(__dirname, '..', 'temp', `customer-receipt-${timestamp}.pdf`);
     const kitchenOutputPath = path.join(__dirname, '..', 'temp', `kitchen-receipt-${timestamp}.pdf`);
 
+    // Extract printer names from receipt data, fallback to env variables if not provided
+    const cashierPrinterName = receiptData.cashierPrinterName || process.env.PRINTER_NAME;
+    const kitchenPrinterName = receiptData.kitchenPrinterName || process.env.PRINTER2_NAME;
+
+    console.log(`Using cashier printer: ${cashierPrinterName}`);
+    console.log(`Using kitchen printer: ${kitchenPrinterName}`);
+
     // Generate both PDFs in parallel
     const [customerPdfGenerated, kitchenPdfGenerated] = await Promise.all([
       generateAndSavePDF(receiptData, customerOutputPath),
@@ -443,9 +450,9 @@ async function printOrderToThermalPrinters(receiptData) {
 
     // Run all three print jobs in parallel
     const [customerResult, customer2Result, kitchenResult] = await Promise.allSettled([
-      printPDFToThermalPrinter(customerOutputPath, process.env.PRINTER_NAME),
-      printPDFToThermalPrinter(customerOutputPath, process.env.PRINTER_NAME),
-      printPDFToThermalPrinter(kitchenOutputPath, process.env.PRINTER2_NAME, 'A8')
+      printPDFToThermalPrinter(customerOutputPath, cashierPrinterName),
+      printPDFToThermalPrinter(customerOutputPath, cashierPrinterName),
+      printPDFToThermalPrinter(kitchenOutputPath, kitchenPrinterName, 'A8')
     ]);
 
     const results = {};
