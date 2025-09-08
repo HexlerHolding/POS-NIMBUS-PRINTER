@@ -255,8 +255,16 @@ function generateReceiptHTML(receipt) {
       
       <div class="divider"></div>
       
+      <div class="item-row" style="margin-bottom: 8px;">
+          <span class="left bold">Cashier: ${receipt.cashierName || 'N/A'}</span>
+      </div>
+      
       <div class="item-row order-number">
           <span class="left bold">Order #: ${receipt.orderId || 'TEST-123'}</span>
+      </div>
+      
+      <div class="item-row" style="margin-bottom: 8px;">
+          <span class="left bold">Order Type: ${receipt.orderType || 'Dine-in'}</span>
       </div>
       
       <div class="item-row" style="margin-bottom: 8px;">
