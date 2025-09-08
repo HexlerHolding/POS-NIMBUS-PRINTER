@@ -445,23 +445,40 @@ async function printOrderToThermalPrinters(receiptData) {
 
     console.log(`Using cashier printer: ${cashierPrinterName}`);
     console.log(`Using kitchen printer: ${kitchenPrinterName}`);
+    console.log(`Request for completion: ${receiptData.requestForCompletion}`);
 
-    // Generate both PDFs in parallel
-    const [customerPdfGenerated, kitchenPdfGenerated] = await Promise.all([
-      generateAndSavePDF(receiptData, customerOutputPath),
-      generateAndSaveKitchenPDF(receiptData, kitchenOutputPath)
-    ]);
+    // Check if this is a completion request (only print to cashier)
+    const skipKitchenPrint = receiptData.requestForCompletion === true;
+    
+    // Generate PDFs - customer always, kitchen only if not completion request
+    const pdfGenerationTasks = [generateAndSavePDF(receiptData, customerOutputPath)];
+    if (!skipKitchenPrint) {
+      pdfGenerationTasks.push(generateAndSaveKitchenPDF(receiptData, kitchenOutputPath));
+    }
+    
+    const pdfResults = await Promise.all(pdfGenerationTasks);
+    const customerPdfGenerated = pdfResults[0];
+    const kitchenPdfGenerated = skipKitchenPrint ? true : pdfResults[1]; // Skip kitchen PDF if completion request
 
-    if (!customerPdfGenerated || !kitchenPdfGenerated) {
+    if (!customerPdfGenerated || (!skipKitchenPrint && !kitchenPdfGenerated)) {
       throw new Error('Failed to generate PDF receipts');
     }
 
-    // Run all three print jobs in parallel
-    const [customerResult, customer2Result, kitchenResult] = await Promise.allSettled([
+    // Prepare print jobs - customer always, kitchen only if not completion request
+    const printJobs = [
       printPDFToThermalPrinter(customerOutputPath, cashierPrinterName),
-      printPDFToThermalPrinter(customerOutputPath, cashierPrinterName),
-      printPDFToThermalPrinter(kitchenOutputPath, kitchenPrinterName, 'A8')
-    ]);
+      printPDFToThermalPrinter(customerOutputPath, cashierPrinterName)
+    ];
+    
+    if (!skipKitchenPrint) {
+      printJobs.push(printPDFToThermalPrinter(kitchenOutputPath, kitchenPrinterName, 'A8'));
+    }
+
+    // Run print jobs in parallel
+    const printResults = await Promise.allSettled(printJobs);
+    const customerResult = printResults[0];
+    const customer2Result = printResults[1];
+    const kitchenResult = skipKitchenPrint ? null : printResults[2];
 
     const results = {};
 
@@ -483,8 +500,11 @@ async function printOrderToThermalPrinters(receiptData) {
       console.error('Failed to print customer receipt 2:', customer2Result.reason);
     }
 
-    // Process kitchen printer result
-    if (kitchenResult.status === 'fulfilled') {
+    // Process kitchen printer result only if not skipping
+    if (skipKitchenPrint) {
+      results.kitchen = { success: true, message: 'Kitchen printing skipped due to completion request' };
+      console.log('Kitchen printing skipped - completion request');
+    } else if (kitchenResult.status === 'fulfilled') {
       results.kitchen = { success: true, message: kitchenResult.value };
       console.log('Kitchen receipt printed successfully');
     } else {
