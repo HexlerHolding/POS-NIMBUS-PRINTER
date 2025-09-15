@@ -30,16 +30,6 @@ function formatCurrency(amount) {
 }
 
 function generateKitchenReceiptHTML(receipt) {
-  let logoBase64 = '';
-  try {
-    const logoPath = process.env.LOGO_PATH || path.join(__dirname, '..', 'logo.png');
-    if (fs.existsSync(logoPath)) {
-      const logoFile = fs.readFileSync(logoPath);
-      logoBase64 = `data:image/png;base64,${logoFile.toString('base64')}`;
-    }
-  } catch (error) {
-    console.error('Error loading logo:', error);
-  }
 
   return `
   <!DOCTYPE html>
@@ -54,14 +44,6 @@ function generateKitchenReceiptHTML(receipt) {
               width: 58mm;
               margin: -5px 0 0 0;
               padding: 8px 8px 8px 6px;
-          }
-          .logo {
-              text-align: center;
-              margin-bottom: 15px;
-          }
-          .logo img {
-              max-width: 120px;
-              height: auto;
           }
           .header {
               text-align: center;
@@ -109,11 +91,6 @@ function generateKitchenReceiptHTML(receipt) {
       </style>
   </head>
   <body>
-      <div class="logo">
-          ${logoBase64 ? `<img src="${logoBase64}" alt="${receipt.businessName || process.env.BUSINESS_NAME || 'NIMBUS POS'} Logo">` :
-      `<div style="font-size: 20px; font-weight: bold;">LOGO</div>`}
-      </div>
-      
       <div class="kitchen-title">KITCHEN ORDER</div>
       
       <div class="divider"></div>
@@ -252,7 +229,9 @@ function generateReceiptHTML(receipt) {
           <div style="font-size: 15px;">${receipt.businessAddress || process.env.BUSINESS_ADDRESS || '123 Main Street'}</div>
           <div style="font-size: 15px;">${receipt.businessPhone || process.env.BUSINESS_PHONE || '(555) 123-4567'}</div>
       </div>
-      
+
+      <div style="text-align: center; font-size: 18px; font-weight: bold; margin: 12px 0; text-decoration: underline;">INVOICE</div>
+
       <div class="divider"></div>
       
       <div class="item-row" style="margin-bottom: 8px;">
