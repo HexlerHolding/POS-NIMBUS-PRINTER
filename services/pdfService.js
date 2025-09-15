@@ -284,7 +284,7 @@ function generateReceiptHTML(receipt) {
       
       <div class="item-row summary-row">
           <span class="left bold">Subtotal</span>
-          <span class="right bold">Rs. ${formatCurrency(receipt.subtotal)}</span>
+          <span class="right bold">Rs. ${formatCurrency(receipt.subTotal)}</span>
       </div>
       
       <div class="item-row summary-row">
@@ -294,13 +294,13 @@ function generateReceiptHTML(receipt) {
       
       <div class="item-row summary-row">
           <span class="left bold">Total Tax</span>
-          <span class="right bold">Rs. ${formatCurrency(receipt.tax)}</span>
+          <span class="right bold">Rs. ${formatCurrency(receipt.totalTax)}</span>
       </div>
             <div class="divider"></div>
 
       <div class="item-row total-row">
           <span class="left">Grand Total</span>
-          <span class="right">Rs. ${formatCurrency(receipt.total)}</span>
+          <span class="right">Rs. ${formatCurrency(receipt.grandTotal)}</span>
       </div>
             <div class="divider"></div>
 
