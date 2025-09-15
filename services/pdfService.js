@@ -272,8 +272,8 @@ function generateReceiptHTML(receipt) {
       </div>
       
       <div class="item-row summary-row">
-          <span class="left bold">Total Tax</span>
-          <span class="right bold">Rs. ${formatCurrency(receipt.totalTax)}</span>
+          <span class="left bold">Discount</span>
+          <span class="right bold">Rs. ${formatCurrency(receipt.discount)}</span>
       </div>
             <div class="divider"></div>
 
