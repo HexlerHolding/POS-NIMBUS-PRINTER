@@ -295,7 +295,7 @@ function generateReceiptHTML(receipt) {
       
       <!-- Three small dots at the bottom center -->
       <div style="text-align: center;">
-          <span style="font-size: 15px;">• • •</span>
+          <span style="font-size: 15px;">• Happy Purchasing! •</span>
       </div>
   </body>
   </html>
