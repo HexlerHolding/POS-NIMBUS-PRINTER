@@ -144,6 +144,10 @@ function generateReceiptHTML(receipt) {
     console.error('Error loading logo:', error);
   }
 
+  // Determine if this is a paid receipt
+  const isPaid = receipt.isPaid === true;
+  const receiptTitle = isPaid ? 'PAID' : 'INVOICE';
+
   return `
   <!DOCTYPE html>
   <html>
@@ -230,7 +234,7 @@ function generateReceiptHTML(receipt) {
           <div style="font-size: 15px;">${receipt.businessPhone || process.env.BUSINESS_PHONE || '(555) 123-4567'}</div>
       </div>
 
-      <div style="text-align: center; font-size: 18px; font-weight: bold; margin: 12px 0; text-decoration: underline;">INVOICE</div>
+      <div style="text-align: center; font-size: 18px; font-weight: bold; margin: 12px 0; text-decoration: underline;">${receiptTitle}</div>
 
       <div class="divider"></div>
       
@@ -424,71 +428,91 @@ async function printOrderToThermalPrinters(receiptData) {
 
     console.log(`Using cashier printer: ${cashierPrinterName}`);
     console.log(`Using kitchen printer: ${kitchenPrinterName}`);
-    console.log(`Request for completion: ${receiptData.requestForCompletion}`);
+    console.log(`Is paid order: ${receiptData.isPaid}`);
+    console.log(`Skip kitchen print: ${receiptData.skipKitchenPrint}`);
+    console.log(`Skip cashier print: ${receiptData.skipCashierPrint}`);
 
-    // Check if this is a completion request (only print to cashier)
-    const skipKitchenPrint = receiptData.requestForCompletion === true;
-    
-    // Generate PDFs - customer always, kitchen only if not completion request
-    const pdfGenerationTasks = [generateAndSavePDF(receiptData, customerOutputPath)];
+    // Check printing flags - use explicit skip flags or fall back to legacy logic
+    const skipKitchenPrint = receiptData.skipKitchenPrint === true;
+    const skipCashierPrint = receiptData.skipCashierPrint === true;
+
+    // If both are skipped, return early
+    if (skipCashierPrint && skipKitchenPrint) {
+      console.log('Both cashier and kitchen printing skipped');
+      return {
+        customer: { success: true, message: 'Cashier printing skipped as requested' },
+        kitchen: { success: true, message: 'Kitchen printing skipped as requested' }
+      };
+    }
+
+    // Generate PDFs - only if not skipped
+    const pdfGenerationTasks = [];
+    if (!skipCashierPrint) {
+      pdfGenerationTasks.push(generateAndSavePDF(receiptData, customerOutputPath));
+    }
     if (!skipKitchenPrint) {
       pdfGenerationTasks.push(generateAndSaveKitchenPDF(receiptData, kitchenOutputPath));
     }
-    
-    const pdfResults = await Promise.all(pdfGenerationTasks);
-    const customerPdfGenerated = pdfResults[0];
-    const kitchenPdfGenerated = skipKitchenPrint ? true : pdfResults[1]; // Skip kitchen PDF if completion request
 
-    if (!customerPdfGenerated || (!skipKitchenPrint && !kitchenPdfGenerated)) {
+    const pdfResults = await Promise.all(pdfGenerationTasks);
+    let customerPdfGenerated = skipCashierPrint ? true : pdfResults[0];
+    let kitchenPdfGenerated = skipKitchenPrint ? true : (skipCashierPrint ? pdfResults[0] : pdfResults[1]);
+
+    if ((!skipCashierPrint && !customerPdfGenerated) || (!skipKitchenPrint && !kitchenPdfGenerated)) {
       throw new Error('Failed to generate PDF receipts');
     }
 
-    // Prepare print jobs - customer always, kitchen only if not completion request
-    const printJobs = [
-      printPDFToThermalPrinter(customerOutputPath, cashierPrinterName),
-      printPDFToThermalPrinter(customerOutputPath, cashierPrinterName)
-    ];
-    
+    // Prepare print jobs - only for non-skipped printers
+    const printJobs = [];
+    if (!skipCashierPrint) {
+      printJobs.push(printPDFToThermalPrinter(customerOutputPath, cashierPrinterName));
+    }
+
     if (!skipKitchenPrint) {
       printJobs.push(printPDFToThermalPrinter(kitchenOutputPath, kitchenPrinterName, 'A8'));
     }
 
     // Run print jobs in parallel
     const printResults = await Promise.allSettled(printJobs);
-    const customerResult = printResults[0];
-    const customer2Result = printResults[1];
-    const kitchenResult = skipKitchenPrint ? null : printResults[2];
-
     const results = {};
 
-    // Process customer printer result
-    if (customerResult.status === 'fulfilled') {
-      results.customer = { success: true, message: customerResult.value };
-      console.log('Customer receipt printed successfully');
+    // Determine result indices based on what was printed
+    let customerResultIndex = 0;
+    let kitchenResultIndex = skipCashierPrint ? 0 : 1;
+
+    // Process cashier printer result
+    if (skipCashierPrint) {
+      let reason = 'explicit skip request';
+      results.customer = { success: true, message: `Cashier printing skipped due to ${reason}` };
+      console.log(`Cashier printing skipped - ${reason}`);
     } else {
-      results.customer = { success: false, error: customerResult.reason.message };
-      console.error('Failed to print customer receipt:', customerResult.reason);
+      const customerResult = printResults[customerResultIndex];
+      if (customerResult.status === 'fulfilled') {
+        results.customer = { success: true, message: customerResult.value };
+        console.log('Customer receipt printed successfully');
+      } else {
+        results.customer = { success: false, error: customerResult.reason.message };
+        console.error('Failed to print customer receipt:', customerResult.reason);
+      }
     }
 
-    // Process customer printer copy 2 result
-    if (customer2Result.status === 'fulfilled') {
-      results.customer2 = { success: true, message: customer2Result.value };
-      console.log('Customer receipt 2 printed successfully');
-    } else {
-      results.customer2 = { success: false, error: customer2Result.reason.message };
-      console.error('Failed to print customer receipt 2:', customer2Result.reason);
-    }
-
-    // Process kitchen printer result only if not skipping
+    // Process kitchen printer result
     if (skipKitchenPrint) {
-      results.kitchen = { success: true, message: 'Kitchen printing skipped due to completion request' };
-      console.log('Kitchen printing skipped - completion request');
-    } else if (kitchenResult.status === 'fulfilled') {
-      results.kitchen = { success: true, message: kitchenResult.value };
-      console.log('Kitchen receipt printed successfully');
+      let reason = 'explicit skip request';
+      if (receiptData.skipKitchenPrint) {
+        reason = 'skip kitchen print flag';
+      }
+      results.kitchen = { success: true, message: `Kitchen printing skipped due to ${reason}` };
+      console.log(`Kitchen printing skipped - ${reason}`);
     } else {
-      results.kitchen = { success: false, error: kitchenResult.reason.message };
-      console.error('Failed to print kitchen receipt:', kitchenResult.reason);
+      const kitchenResult = printResults[kitchenResultIndex];
+      if (kitchenResult.status === 'fulfilled') {
+        results.kitchen = { success: true, message: kitchenResult.value };
+        console.log('Kitchen receipt printed successfully');
+      } else {
+        results.kitchen = { success: false, error: kitchenResult.reason.message };
+        console.error('Failed to print kitchen receipt:', kitchenResult.reason);
+      }
     }
 
     return results;
