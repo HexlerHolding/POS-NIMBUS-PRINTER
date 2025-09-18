@@ -22,39 +22,92 @@ function validateReceiptData(req, res, next) {
   }
 
   if (data.items && Array.isArray(data.items)) {
-    const invalidItems = data.items.filter(item =>
-      !item.name ||
-      typeof item.quantity !== 'number' ||
-      typeof item.price !== 'number'
-    );
+    // Try to convert and validate items
+    const convertedItems = [];
+    const invalidItems = [];
+
+    for (let i = 0; i < data.items.length; i++) {
+      const item = data.items[i];
+      const convertedItem = { ...item };
+
+      // Check name field
+      if (!item.name) {
+        invalidItems.push({ index: i, error: 'Missing product name' });
+        continue;
+      }
+
+      // Use product_name if available, otherwise use name
+      convertedItem.name = item.product_name || item.name;
+
+      // Try to convert quantity to number
+      if (typeof item.quantity !== 'number') {
+        const convertedQuantity = Number(item.quantity);
+        if (isNaN(convertedQuantity) || convertedQuantity < 0) {
+          invalidItems.push({ index: i, error: 'Invalid quantity - must be a positive number' });
+          continue;
+        }
+        convertedItem.quantity = convertedQuantity;
+      }
+
+      // Try to convert price to number
+      if (typeof item.price !== 'number') {
+        const convertedPrice = Number(item.price);
+        if (isNaN(convertedPrice) || convertedPrice < 0) {
+          invalidItems.push({ index: i, error: 'Invalid price - must be a positive number' });
+          continue;
+        }
+        convertedItem.price = convertedPrice;
+      }
+
+      convertedItems.push(convertedItem);
+    }
 
     if (invalidItems.length > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid items format. Each item must have name (string), quantity (number), and price (number)'
+        message: 'Invalid items format detected',
+        invalidItems
       });
     }
+
+    // Update the data with converted items
+    data.items = convertedItems;
   }
 
+  // Try to convert subtotal to number
   if (data.subtotal !== undefined && typeof data.subtotal !== 'number') {
-    return res.status(400).json({
-      success: false,
-      message: 'Subtotal must be a number'
-    });
+    const convertedSubtotal = Number(data.subtotal);
+    if (isNaN(convertedSubtotal) || convertedSubtotal < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Subtotal must be a valid positive number'
+      });
+    }
+    data.subtotal = convertedSubtotal;
   }
 
+  // Try to convert tax to number
   if (data.tax !== undefined && typeof data.tax !== 'number') {
-    return res.status(400).json({
-      success: false,
-      message: 'Tax must be a number'
-    });
+    const convertedTax = Number(data.tax);
+    if (isNaN(convertedTax) || convertedTax < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tax must be a valid positive number'
+      });
+    }
+    data.tax = convertedTax;
   }
 
+  // Try to convert total to number
   if (data.total !== undefined && typeof data.total !== 'number') {
-    return res.status(400).json({
-      success: false,
-      message: 'Total must be a number'
-    });
+    const convertedTotal = Number(data.total);
+    if (isNaN(convertedTotal) || convertedTotal < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Total must be a valid positive number'
+      });
+    }
+    data.total = convertedTotal;
   }
 
   next();
