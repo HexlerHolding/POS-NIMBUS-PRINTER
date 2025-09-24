@@ -252,8 +252,8 @@ function generateReceiptHTML(receipt) {
               margin: 3px 0;
               padding-left: 20px;
               font-size: 14px;
-              font-weight: 500;
-              color: #555;
+              font-weight: 600;
+              color: #000;
           }
       </style>
   </head>
