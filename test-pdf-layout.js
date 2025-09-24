@@ -33,11 +33,36 @@ const sampleReceipt = {
   date: new Date(),
   cashier: 'John Doe',
   items: [
-    { name: 'Hamburger', quantity: 2, price: 500.99 },
+    {
+      name: 'Hamburger',
+      quantity: 2,
+      price: 500.99,
+      variations: [
+        { name: 'Size', value: 'Large', price: 50.00 },
+        { name: 'Patty', value: 'Double', price: 100.00 }
+      ]
+    },
     { name: 'French Fries', quantity: 1, price: 2.99 },
-    { name: 'Soda (Large)', quantity: 3, price: 1.99 },
+    {
+      name: 'Soda (Large)',
+      quantity: 3,
+      price: 1.99,
+      variations: [
+        { name: 'Flavor', value: 'Cola' },
+        { name: 'Ice', value: 'Extra Ice' }
+      ]
+    },
     { name: 'Apple Pie', quantity: 1, price: 3.49 },
-    { name: 'Coffee with extra long name', quantity: 1, price: 233.50 }
+    {
+      name: 'Coffee with extra long name',
+      quantity: 1,
+      price: 233.50,
+      variations: [
+        { name: 'Size', value: 'Medium' },
+        { name: 'Milk', value: 'Almond Milk', price: 25.00 },
+        { name: 'Sugar', value: 'Extra Sweet' }
+      ]
+    }
   ],
   subtotal: 1600.45,
   tax: 1.65,
@@ -349,10 +374,13 @@ async function runTests() {
   console.log('---- Receipt PDF Generator Test ----');
 
   try {
-    // Generate standard receipt PDF for 80mm printer
+    // Import the actual service functions
+    const { generateAndSavePDF: serviceGenerateAndSavePDF } = require('./services/pdfService');
+
+    // Generate standard receipt PDF for 80mm printer using the service
     console.log('\nGenerating receipt PDF for 80mm printer...');
     const receiptPdfPath = path.join(outputDir, 'receipt.pdf');
-    await generateAndSavePDF(sampleReceipt, receiptPdfPath);
+    await serviceGenerateAndSavePDF(sampleReceipt, receiptPdfPath);
 
     // Test kitchen printer
     await testKitchenPrinter();

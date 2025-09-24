@@ -88,6 +88,13 @@ function generateKitchenReceiptHTML(receipt) {
               margin: 12px 0;
               text-decoration: underline;
           }
+          .variation-item {
+              margin: 3px 0;
+              padding-left: 15px;
+              font-size: 13px;
+              font-weight: 500;
+              color: #333;
+          }
       </style>
   </head>
   <body>
@@ -109,13 +116,32 @@ function generateKitchenReceiptHTML(receipt) {
           <div class="item-row">
               <span class="left"><strong style="min-width: 16px; display: inline-block; font-size: 16px;">${item.quantity}x</strong> ${item.name}</span>
           </div>
+          ${item.variations && item.variations.length > 0 ? item.variations.map(variation => `
+              <div class="variation-item">
+                  ${variation.name}: ${variation.value}
+              </div>
+          `).join('') : ''}
       `).join('') : ''}
       
       <div class="divider"></div>
       
       <div class="item-row" style="margin-top: 12px; font-size: 14px; font-weight: bold;">
           <span class="left">Date:</span>
-          <span class="right">${receipt.date ? new Date(receipt.date).toLocaleString() : new Date().toLocaleString()}</span>
+          <span class="right">${receipt.date ? new Date(receipt.date).toLocaleString('en-US', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+          }) : new Date().toLocaleString('en-US', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+          })}</span>
       </div>
       
       <!-- Padding for kitchen use -->
@@ -220,6 +246,15 @@ function generateReceiptHTML(receipt) {
               margin: 8px 0;
               letter-spacing: 0.7px;
           }
+          .variation-item {
+              display: flex;
+              justify-content: space-between;
+              margin: 3px 0;
+              padding-left: 20px;
+              font-size: 12px;
+              font-weight: 400;
+              color: #555;
+          }
       </style>
   </head>
   <body>
@@ -261,6 +296,12 @@ function generateReceiptHTML(receipt) {
               <span class="left"><strong style="min-width: 15px; display: inline-block;">${item.quantity}</strong> ${item.name}</span>
               <span class="right">&nbsp; Rs. ${formatCurrency(item.price)}</span>
           </div>
+          ${item.variations && item.variations.length > 0 ? item.variations.map(variation => `
+              <div class="variation-item">
+                  <span class="left">${variation.name}: ${variation.value}</span>
+                  <span class="right">${variation.price ? 'Rs. ' + formatCurrency(variation.price) : ''}</span>
+              </div>
+          `).join('') : ''}
       `).join('') : ''}
       
       <div class="divider"></div>
@@ -271,7 +312,7 @@ function generateReceiptHTML(receipt) {
       </div>
       
       <div class="item-row summary-row">
-          <span class="left bold">Tax</span>
+          <span class="left bold">Tax${receipt.taxPercentage ? `(${receipt.taxPercentage}%)` : ''}</span>
           <span class="right bold">Rs. ${formatCurrency(receipt.tax)}</span>
       </div>
       
@@ -279,6 +320,13 @@ function generateReceiptHTML(receipt) {
           <span class="left bold">Discount</span>
           <span class="right bold">Rs. ${formatCurrency(receipt.discount)}</span>
       </div>
+
+      ${receipt.orderType === 'delivery' && receipt.deliveryCharges > 0 ? `
+      <div class="item-row summary-row">
+          <span class="left bold">Delivery Charges</span>
+          <span class="right bold">Rs. ${formatCurrency(receipt.deliveryCharges)}</span>
+      </div>` : ''}
+
             <div class="divider"></div>
 
       <div class="item-row total-row">
