@@ -91,7 +91,7 @@ function generateKitchenReceiptHTML(receipt) {
           .variation-item {
               margin: 3px 0;
               padding-left: 15px;
-              font-size: 13px;
+              font-size: 14px;
               font-weight: 500;
               color: #333;
           }
