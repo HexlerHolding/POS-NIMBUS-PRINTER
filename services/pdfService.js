@@ -92,8 +92,8 @@ function generateKitchenReceiptHTML(receipt) {
               margin: 3px 0;
               padding-left: 15px;
               font-size: 14px;
-              font-weight: 500;
-              color: #333;
+              font-weight: 600;
+              color: #000;
           }
       </style>
   </head>
