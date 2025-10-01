@@ -105,7 +105,11 @@ function generateKitchenReceiptHTML(receipt) {
       <div class="item-row order-number">
           <span class="left bold">Order #: ${receipt.orderId || 'TEST-123'}</span>
       </div>
-      
+
+      <div class="item-row" style="margin-bottom: 8px;">
+          <span class="left bold">Order Type: ${receipt.orderType || 'Dine-in'}</span>
+      </div>
+
       <div class="item-row" style="margin-bottom: 10px;">
           <span class="left bold">Customer: ${receipt.customerName || 'Walk-in'}</span>
       </div>
