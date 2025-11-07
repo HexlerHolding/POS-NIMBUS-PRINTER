@@ -518,6 +518,7 @@ async function printOrderToThermalPrinters(receiptData) {
     const printJobs = [];
     if (!skipCashierPrint) {
       printJobs.push(printPDFToThermalPrinter(customerOutputPath, cashierPrinterName));
+      printJobs.push(printPDFToThermalPrinter(kitchenOutputPath, cashierPrinterName));
     }
 
     if (!skipKitchenPrint) {
