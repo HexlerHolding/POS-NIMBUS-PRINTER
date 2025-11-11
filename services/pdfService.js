@@ -485,8 +485,8 @@ async function printOrderToThermalPrinters(receiptData) {
     console.log(`Skip cashier print: ${receiptData.skipCashierPrint}`);
 
     // Check printing flags - use explicit skip flags or fall back to legacy logic
-    const skipKitchenPrint = receiptData.skipKitchenPrint === true;
-    const skipCashierPrint = receiptData.skipCashierPrint === true;
+    const skipKitchenPrint = receiptData.skipKitchenPrint ;
+    const skipCashierPrint = receiptData.skipCashierPrint;
 
     // If both are skipped, return early
     if (skipCashierPrint && skipKitchenPrint) {
