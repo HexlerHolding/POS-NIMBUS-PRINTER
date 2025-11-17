@@ -118,7 +118,7 @@ function generateKitchenReceiptHTML(receipt) {
       
       ${receipt.items ? receipt.items.map(item => `
           <div class="item-row">
-              <span class="left"><strong style="min-width: 16px; display: inline-block; font-size: 16px;">${item.quantity}x</strong> ${item.name}</span>
+              <span class="left"><strong style="min-width: 16px; display: inline-block; font-size: 17px;">${item.quantity}x</strong> ${item.name}</span>
           </div>
           ${item.variations && item.variations.length > 0 ? item.variations.map(variation => `
               <div class="variation-item">
@@ -255,7 +255,7 @@ function generateReceiptHTML(receipt) {
               justify-content: space-between;
               margin: 3px 0;
               padding-left: 20px;
-              font-size: 14px;
+              font-size: 13px;
               font-weight: 600;
               color: #000;
           }
