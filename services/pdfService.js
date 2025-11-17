@@ -132,20 +132,20 @@ function generateKitchenReceiptHTML(receipt) {
       <div class="item-row" style="margin-top: 12px; font-size: 14px; font-weight: bold;">
           <span class="left">Date:</span>
           <span class="right">${receipt.date ? new Date(receipt.date).toLocaleString('en-US', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-          }) : new Date().toLocaleString('en-US', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: true
-          })}</span>
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  }) : new Date().toLocaleString('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  })}</span>
       </div>
       
       <!-- Padding for kitchen use -->
@@ -485,9 +485,9 @@ async function printOrderToThermalPrinters(receiptData) {
     console.log(`Skip cashier print: ${receiptData.skipCashierPrint}`);
 
     // Check printing flags - use explicit skip flags or fall back to legacy logic
-    const skipKitchenPrint = receiptData.skipKitchenPrint ;
+    const skipKitchenPrint = receiptData.skipKitchenPrint;
     const skipCashierPrint = receiptData.skipCashierPrint;
-
+    const skipCashierKitchenPrint = receiptData.skipCashierKitchenPrint;
     // If both are skipped, return early
     if (skipCashierPrint && skipKitchenPrint) {
       console.log('Both cashier and kitchen printing skipped');
@@ -518,6 +518,8 @@ async function printOrderToThermalPrinters(receiptData) {
     const printJobs = [];
     if (!skipCashierPrint) {
       printJobs.push(printPDFToThermalPrinter(customerOutputPath, cashierPrinterName));
+    }
+    if (!skipCashierKitchenPrint) {
       printJobs.push(printPDFToThermalPrinter(kitchenOutputPath, cashierPrinterName));
     }
 
