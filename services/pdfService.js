@@ -375,7 +375,7 @@ function generateKitchenReceiptHTML(receipt) {
           </div>
           ${item.variations && item.variations.length > 0 ? item.variations.map(variation => `
               <div class="variation-item">
-                  ${variation.name}: ${variation.value}
+                  ${variation.value}
               </div>
           `).join('') : ''}
       `).join('') : ''}
