@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { generateAndSavePDF, printPDFToThermalPrinter, printOrderToThermalPrinters } = require('./services/pdfService');
+const { generateAndSavePDF, generateAndSaveDayReportPDF, printPDFToThermalPrinter, printOrderToThermalPrinters, printDayReportToThermalPrinter } = require('./services/pdfService');
 const { validateReceiptData } = require('./middleware/validation');
 const path = require('path');
 
@@ -68,6 +68,69 @@ app.post('/api/print', validateReceiptData, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Error printing order receipts',
+      error: error.message
+    });
+  }
+});
+
+// Print Day Report Route
+app.post('/api/print-day-report', async (req, res) => {
+  try {
+    const { reportData, printerName } = req.body;
+    
+    if (!reportData) {
+      return res.status(400).json({
+        success: false,
+        message: 'Report data is required'
+      });
+    }
+
+    console.log('Printing day report to thermal printer...');
+    const printResult = await printDayReportToThermalPrinter(reportData, printerName);
+    
+    if (printResult.success) {
+      res.json({
+        success: true,
+        message: printResult.message,
+        pdfPath: printResult.pdfPath
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        message: printResult.error || 'Failed to print day report'
+      });
+    }
+  } catch (error) {
+    console.error('Error printing day report:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error printing day report',
+      error: error.message
+    });
+  }
+});
+
+// Download generated PDF files
+app.get('/api/download/:filename', (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(__dirname, 'temp', filename);
+    
+    if (!require('fs').existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        message: 'File not found'
+      });
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.sendFile(filePath);
+  } catch (error) {
+    console.error('Error downloading file:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error downloading file',
       error: error.message
     });
   }

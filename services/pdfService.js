@@ -29,6 +29,259 @@ function formatCurrency(amount) {
   });
 }
 
+function generateDayReportHTML(reportData) {
+  let logoBase64 = '';
+  try {
+    const logoPath = process.env.LOGO_PATH || path.join(__dirname, '..', 'logo.png');
+    if (fs.existsSync(logoPath)) {
+      const logoFile = fs.readFileSync(logoPath);
+      logoBase64 = `data:image/png;base64,${logoFile.toString('base64')}`;
+    }
+  } catch (error) {
+    console.error('Error loading logo:', error);
+  }
+
+  const formatDateTime = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleString('en-US', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  return `
+  <!DOCTYPE html>
+  <html>
+  <head>
+      <meta charset="utf-8">
+      <title>Day Report</title>
+      <style>
+          body {
+              font-family: 'Courier New', monospace;
+              font-size: 12px;
+              width: 72mm;
+              margin: -5px 0 0 0;
+              padding: 10px 5px;
+          }
+          .logo {
+              text-align: center;
+              margin-bottom: 10px;
+          }
+          .logo img {
+              max-width: 100px;
+              height: auto;
+          }
+          .header {
+              text-align: center;
+              margin-bottom: 10px;
+          }
+          .business-name {
+              font-size: 14px;
+              font-weight: bold;
+              margin-bottom: 5px;
+          }
+          .report-title {
+              font-size: 16px;
+              font-weight: bold;
+              margin: 10px 0;
+              text-decoration: underline;
+          }
+          .divider {
+              border-bottom: 1px dashed #000;
+              margin: 10px 0;
+              width: 100%;
+          }
+          .info-row {
+              display: flex;
+              justify-content: space-between;
+              margin: 4px 0;
+              font-weight: 600;
+              font-size: 11px;
+          }
+          .section-title {
+              font-size: 13px;
+              font-weight: bold;
+              text-align: center;
+              margin: 12px 0 8px 0;
+              text-transform: uppercase;
+          }
+          .sales-row {
+              display: flex;
+              justify-content: space-between;
+              margin: 3px 0;
+              font-size: 11px;
+          }
+          .sales-label {
+              font-weight: 600;
+          }
+          .sales-amount {
+              font-weight: bold;
+          }
+          .total-row {
+              display: flex;
+              justify-content: space-between;
+              margin: 5px 0;
+              font-size: 12px;
+              font-weight: bold;
+              border-top: 1px solid #000;
+              padding-top: 3px;
+          }
+          .center {
+              text-align: center;
+          }
+          .bold {
+              font-weight: bold;
+          }
+      </style>
+  </head>
+  <body>
+      <div class="logo">
+          ${logoBase64 ? `<img src="${logoBase64}" alt="Logo">` : `<div style="font-size: 16px; font-weight: bold;">LOGO</div>`}
+      </div>
+      
+      <div class="header">
+          <div class="business-name">${reportData.branchInfo?.branch_name || process.env.BUSINESS_NAME || 'Business Name'}</div>
+          <div class="report-title">DAY REPORT</div>
+      </div>
+
+      <div class="divider"></div>
+      
+      <!-- Basic Info -->
+      <div class="info-row">
+          <span>Branch:</span>
+          <span>${reportData.branchInfo?.branch_name || 'N/A'}</span>
+      </div>
+      
+      <div class="info-row">
+          <span>Cashier:</span>
+          <span>${reportData.userInfo?.name || 'N/A'}</span>
+      </div>
+      
+      <div class="info-row">
+          <span>Day Opened:</span>
+      </div>
+      <div style="text-align: center; font-size: 10px; margin-bottom: 3px;">
+          ${formatDateTime(reportData.branchInfo?.day_opened_at)}
+      </div>
+      
+      <div class="info-row">
+          <span>Day Closed:</span>
+      </div>
+      <div style="text-align: center; font-size: 10px; margin-bottom: 5px;">
+          ${formatDateTime(reportData.branchInfo?.day_closed_at)}
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Sales Details -->
+      <div class="section-title">SALES DETAILS</div>
+      
+      <div class="sales-row">
+          <span class="sales-label">Gross Sales:</span>
+          <span class="sales-amount">Rs. ${formatCurrency(reportData.salesDetails?.grossSales || 0)}</span>
+      </div>
+      
+      <div class="sales-row">
+          <span class="sales-label">Discounts:</span>
+          <span class="sales-amount">-Rs. ${formatCurrency(reportData.salesDetails?.totalDiscount || 0)}</span>
+      </div>
+      
+      <div class="sales-row">
+          <span class="sales-label">Cancelled:</span>
+          <span class="sales-amount">-Rs. ${formatCurrency(reportData.salesDetails?.cancelledAmount || 0)}</span>
+      </div>
+      
+      <div class="sales-row">
+          <span class="sales-label">Net Sales:</span>
+          <span class="sales-amount">Rs. ${formatCurrency(reportData.salesDetails?.netSales || 0)}</span>
+      </div>
+      
+      <div class="sales-row">
+          <span class="sales-label">Tax Amount:</span>
+          <span class="sales-amount">Rs. ${formatCurrency(reportData.salesDetails?.taxAmount || 0)}</span>
+      </div>
+      
+      <div class="sales-row">
+          <span class="sales-label">Delivery Charges:</span>
+          <span class="sales-amount">Rs. ${formatCurrency(reportData.salesDetails?.deliveryCharges || 0)}</span>
+      </div>
+      
+      <div class="total-row">
+          <span>Net Sales (Inc. Tax):</span>
+          <span>Rs. ${formatCurrency(reportData.salesDetails?.netSalesIncTax || 0)}</span>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Insights -->
+      <div class="section-title">INSIGHTS</div>
+      
+      <div class="sales-row">
+          <span class="sales-label">Total Orders:</span>
+          <span class="sales-amount">${reportData.insights?.totalOrders || 0}</span>
+      </div>
+      
+      <div class="sales-row">
+          <span class="sales-label">Total Customers:</span>
+          <span class="sales-amount">${reportData.insights?.totalCustomers || 0}</span>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Payment Wise Sales -->
+      <div class="section-title">PAYMENT WISE SALES</div>
+      
+      ${reportData.paymentWiseSales?.map(payment => `
+          <div class="sales-row">
+              <span class="sales-label" style="text-transform: capitalize;">${payment.method}:</span>
+              <span class="sales-amount">Rs. ${formatCurrency(payment.amount)} (${payment.percentage.toFixed(1)}%)</span>
+          </div>
+      `).join('') || '<div class="center" style="font-size: 10px; color: #666;">No payment data</div>'}
+
+      <div class="divider"></div>
+
+      <!-- Order Type Sales -->
+      <div class="section-title">ORDER TYPE SALES</div>
+      
+      ${reportData.orderTypeSales?.map(orderType => `
+          <div class="sales-row">
+              <span class="sales-label" style="text-transform: capitalize;">${orderType.type}:</span>
+              <span class="sales-amount">Rs. ${formatCurrency(orderType.amount)} (${orderType.percentage.toFixed(1)}%)</span>
+          </div>
+      `).join('') || '<div class="center" style="font-size: 10px; color: #666;">No order type data</div>'}
+
+      <div class="divider"></div>
+
+      <div class="center" style="font-size: 10px; margin: 10px 0;">
+          Report generated on:<br>
+          ${new Date().toLocaleString('en-US', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+          })}
+      </div>
+
+      <!-- Padding for thermal printer -->
+      <div style="line-height: 1;">
+          <br><br><br><br>
+      </div>
+      
+      <!-- Three dots at the bottom center -->
+      <div style="text-align: center;">
+          <span style="font-size: 15px;">• • •</span>
+      </div>
+  </body>
+  </html>
+  `;
+}
+
 function generateKitchenReceiptHTML(receipt) {
 
   return `
@@ -147,6 +400,17 @@ function generateKitchenReceiptHTML(receipt) {
     hour12: true
   })}</span>
       </div>
+      
+      ${receipt.instruction || receipt.comment ? `
+      <div class="divider"></div>
+      
+      <div style="margin-top: 12px; font-size: 14px; font-weight: bold;">
+          <div>INSTRUCTIONS:</div>
+          <div style="margin-top: 4px; font-weight: normal; font-size: 13px; word-wrap: break-word;">
+              ${receipt.instruction || receipt.comment}
+          </div>
+      </div>
+      ` : ''}
       
       <!-- Padding for kitchen use -->
       <div style="line-height: 1;">
@@ -468,6 +732,52 @@ async function printPDFToThermalPrinter(pdfPath, printerName = null, paperSize =
   }
 }
 
+async function generateAndSaveDayReportPDF(reportData, outputPath) {
+  const htmlContent = generateDayReportHTML(reportData);
+  const htmlPath = path.join(tempDir, `day-report-${Date.now()}.html`);
+
+  fs.writeFileSync(htmlPath, htmlContent);
+  console.log(`Day Report HTML file saved to: ${htmlPath}`);
+
+  try {
+    const browser = await puppeteer.launch({ headless: 'new' });
+    const page = await browser.newPage();
+
+    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+
+    // Calculate height based on content
+    const baseHeight = 180; // Base height for day report header and footer
+    const sectionHeight = 25; // Height per section
+    const paymentItemHeight = 4; // Height per payment item
+    const orderTypeItemHeight = 4; // Height per order type item
+    const bottomPadding = 25; // Extra padding
+    
+    const paymentItems = reportData.paymentWiseSales?.length || 0;
+    const orderTypeItems = reportData.orderTypeSales?.length || 0;
+    const estimatedHeight = baseHeight + (6 * sectionHeight) + (paymentItems * paymentItemHeight) + (orderTypeItems * orderTypeItemHeight) + bottomPadding;
+
+    await page.pdf({
+      path: outputPath,
+      width: '72mm',
+      height: `${estimatedHeight}mm`,
+      margin: {
+        top: '5mm',
+        right: '5mm',
+        bottom: '5mm',
+        left: '5mm'
+      },
+      printBackground: true
+    });
+
+    await browser.close();
+    console.log(`Day Report PDF file saved to: ${outputPath}`);
+    return true;
+  } catch (error) {
+    console.error('Error generating Day Report PDF:', error);
+    return false;
+  }
+}
+
 async function printOrderToThermalPrinters(receiptData) {
   try {
     const timestamp = Date.now();
@@ -577,9 +887,49 @@ async function printOrderToThermalPrinters(receiptData) {
   }
 }
 
+async function printDayReportToThermalPrinter(reportData, printerName = null) {
+  try {
+    const timestamp = Date.now();
+    const outputPath = path.join(__dirname, '..', 'temp', `day-report-${timestamp}.pdf`);
+    
+    // Use provided printer name or fall back to cashier printer from env
+    const finalPrinterName = printerName || process.env.PRINTER_NAME;
+    
+    console.log(`Generating day report PDF...`);
+    console.log(`Using cashier printer: ${finalPrinterName}`);
+    
+    // Generate the PDF first
+    const pdfGenerated = await generateAndSaveDayReportPDF(reportData, outputPath);
+    
+    if (!pdfGenerated) {
+      throw new Error('Failed to generate day report PDF');
+    }
+    
+    // Print the PDF to thermal printer
+    console.log(`Sending day report to printer: ${finalPrinterName}`);
+    const printResult = await printPDFToThermalPrinter(outputPath, finalPrinterName, 'A7');
+    
+    console.log('Day report printed successfully');
+    return {
+      success: true,
+      message: 'Day report printed successfully',
+      pdfPath: outputPath
+    };
+    
+  } catch (error) {
+    console.error('Error printing day report:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
 module.exports = {
   generateAndSavePDF,
   generateAndSaveKitchenPDF,
+  generateAndSaveDayReportPDF,
   printPDFToThermalPrinter,
   printOrderToThermalPrinters,
+  printDayReportToThermalPrinter,
 };
