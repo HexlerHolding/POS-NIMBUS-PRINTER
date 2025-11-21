@@ -127,7 +127,6 @@ function generateDayReportHTML(reportData) {
               margin: 5px 0;
               font-size: 12px;
               font-weight: bold;
-              border-top: 1px solid #000;
               padding-top: 3px;
           }
           .center {
@@ -179,39 +178,39 @@ function generateDayReportHTML(reportData) {
 
       <!-- Sales Details -->
       <div class="section-title">SALES DETAILS</div>
-      
+
       <div class="sales-row">
           <span class="sales-label">Gross Sales:</span>
           <span class="sales-amount">Rs. ${formatCurrency(reportData.salesDetails?.grossSales || 0)}</span>
       </div>
-      
+
       <div class="sales-row">
           <span class="sales-label">Discounts:</span>
           <span class="sales-amount">-Rs. ${formatCurrency(reportData.salesDetails?.totalDiscount || 0)}</span>
       </div>
-      
-      <div class="sales-row">
-          <span class="sales-label">Cancelled:</span>
-          <span class="sales-amount">-Rs. ${formatCurrency(reportData.salesDetails?.cancelledAmount || 0)}</span>
-      </div>
-      
+
       <div class="sales-row">
           <span class="sales-label">Net Sales:</span>
           <span class="sales-amount">Rs. ${formatCurrency(reportData.salesDetails?.netSales || 0)}</span>
       </div>
-      
+
       <div class="sales-row">
           <span class="sales-label">Tax Amount:</span>
           <span class="sales-amount">Rs. ${formatCurrency(reportData.salesDetails?.taxAmount || 0)}</span>
       </div>
-      
+
+      <div class="sales-row">
+          <span class="sales-label">Net Sales (Inc. Tax):</span>
+          <span class="sales-amount">Rs. ${formatCurrency(reportData.salesDetails?.netSalesIncTax || 0)}</span>
+      </div>
+
       <div class="sales-row">
           <span class="sales-label">Delivery Charges:</span>
           <span class="sales-amount">Rs. ${formatCurrency(reportData.salesDetails?.deliveryCharges || 0)}</span>
       </div>
-      
+
       <div class="total-row">
-          <span>Net Sales (Inc. Tax):</span>
+          <span>Total Revenue:</span>
           <span>Rs. ${formatCurrency(reportData.salesDetails?.netSalesIncTax || 0)}</span>
       </div>
 
@@ -219,15 +218,15 @@ function generateDayReportHTML(reportData) {
 
       <!-- Insights -->
       <div class="section-title">INSIGHTS</div>
-      
+
       <div class="sales-row">
           <span class="sales-label">Total Orders:</span>
           <span class="sales-amount">${reportData.insights?.totalOrders || 0}</span>
       </div>
-      
+
       <div class="sales-row">
-          <span class="sales-label">Total Customers:</span>
-          <span class="sales-amount">${reportData.insights?.totalCustomers || 0}</span>
+          <span class="sales-label">Total Cancelled Orders:</span>
+          <span class="sales-amount">${reportData.insights?.totalCancelledOrders || 0}</span>
       </div>
 
       <div class="divider"></div>
@@ -282,7 +281,7 @@ function generateDayReportHTML(reportData) {
   `;
 }
 
-function generateKitchenReceiptHTML(receipt) {
+function generateKitchenReceiptHTML(receipt, isDuplicate = false) {
 
   return `
   <!DOCTYPE html>
@@ -352,6 +351,7 @@ function generateKitchenReceiptHTML(receipt) {
   </head>
   <body>
       <div class="kitchen-title">KITCHEN ORDER</div>
+      ${isDuplicate ? `<div style="text-align: center; font-size: 16px; font-weight: bold; color: #000; margin: 5px 0;">DUPLICATE</div>` : ''}
       
       <div class="divider"></div>
       
@@ -622,8 +622,8 @@ function generateReceiptHTML(receipt) {
   `;
 }
 
-async function generateAndSaveKitchenPDF(receipt, outputPath) {
-  const htmlContent = generateKitchenReceiptHTML(receipt);
+async function generateAndSaveKitchenPDF(receipt, outputPath, isDuplicate = false) {
+  const htmlContent = generateKitchenReceiptHTML(receipt, isDuplicate);
   const htmlPath = path.join(tempDir, `kitchen-receipt-${Date.now()}.html`);
 
   fs.writeFileSync(htmlPath, htmlContent);
@@ -813,7 +813,7 @@ async function printOrderToThermalPrinters(receiptData) {
       pdfGenerationTasks.push(generateAndSavePDF(receiptData, customerOutputPath));
     }
     if (!skipKitchenPrint) {
-      pdfGenerationTasks.push(generateAndSaveKitchenPDF(receiptData, kitchenOutputPath));
+      pdfGenerationTasks.push(generateAndSaveKitchenPDF(receiptData, kitchenOutputPath, receiptData.isDuplicate));
     }
 
     const pdfResults = await Promise.all(pdfGenerationTasks);
@@ -830,7 +830,10 @@ async function printOrderToThermalPrinters(receiptData) {
       printJobs.push(printPDFToThermalPrinter(customerOutputPath, cashierPrinterName));
     }
     if (!skipCashierKitchenPrint) {
-      printJobs.push(printPDFToThermalPrinter(kitchenOutputPath, cashierPrinterName));
+      // Generate duplicate kitchen receipt for cashier printer
+      const duplicateKitchenOutputPath = path.join(__dirname, '..', 'temp', `duplicate-kitchen-receipt-${timestamp}.pdf`);
+      await generateAndSaveKitchenPDF(receiptData, duplicateKitchenOutputPath, true);
+      printJobs.push(printPDFToThermalPrinter(duplicateKitchenOutputPath, cashierPrinterName));
     }
 
     if (!skipKitchenPrint) {
