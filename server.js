@@ -11,11 +11,11 @@ app.options('*', (req, res) => {
   // Set allowed origins
   const allowedOrigins = ['https://pos.nimbus360.org', 'http://localhost:3000', 'https://nimbus360.org'];
   const origin = req.headers.origin;
-
+  
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
-
+  
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -38,7 +38,15 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json({ limit: '10mb' })); // Increase limit for base64 images
+app.use(express.json());
+
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    version: process.env.npm_package_version || '1.0.0'
+  });
+});
 
 /**
  * Generic Print Endpoint
@@ -101,18 +109,6 @@ app.post('/api/print', async (req, res) => {
   }
 });
 
-/**
- * Health Check Endpoint
- * GET /api/health
- */
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    version: process.env.npm_package_version || '1.0.0',
-    service: 'Nimbus Printer Microservice'
-  });
-});
 
 app.listen(PORT, () => {
   console.log(`====================================`);
