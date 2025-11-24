@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { generateAndSavePDF, generateAndSaveDayReportPDF, printPDFToThermalPrinter, printOrderToThermalPrinters, printDayReportToThermalPrinter } = require('./services/pdfService');
-const { validateReceiptData } = require('./middleware/validation');
+const { printHTML } = require('./services/pdfService');
 const path = require('path');
 
 const app = express();
@@ -12,11 +11,11 @@ app.options('*', (req, res) => {
   // Set allowed origins
   const allowedOrigins = ['https://pos.nimbus360.org', 'http://localhost:3000', 'https://nimbus360.org'];
   const origin = req.headers.origin;
-  
+
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
-  
+
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -39,116 +38,88 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Increase limit for base64 images
 
-
-app.post('/api/print', validateReceiptData, async (req, res) => {
+/**
+ * Generic Print Endpoint
+ * Accepts HTML content and printer configuration
+ * POST /api/print
+ * Body: {
+ *   htmlContent: string,
+ *   printerName: string,
+ *   pdfOptions: { width, height, margin },
+ *   paperSize: string (A7, A8, etc.)
+ * }
+ */
+app.post('/api/print', async (req, res) => {
   try {
-    const { receiptData } = req.body;
-    
-    const printResults = await printOrderToThermalPrinters(receiptData);
-    
-    const customerSuccess = printResults.customer && printResults.customer.success;
-    const kitchenSuccess = printResults.kitchen && printResults.kitchen.success;
-    
-    res.json({
-      success: customerSuccess || kitchenSuccess, // Success if at least one printer worked
-      message: 'Order print job completed',
-      results: {
-        customer: printResults.customer,
-        kitchen: printResults.kitchen
-      },
-      summary: {
-        customerPrinted: customerSuccess,
-        kitchenPrinted: kitchenSuccess,
-        totalPrinted: (customerSuccess ? 1 : 0) + (kitchenSuccess ? 1 : 0)
-      }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Error printing order receipts',
-      error: error.message
-    });
-  }
-});
+    const { htmlContent, printerName, pdfOptions, paperSize } = req.body;
 
-// Print Day Report Route
-app.post('/api/print-day-report', async (req, res) => {
-  try {
-    const { reportData, printerName } = req.body;
-    
-    if (!reportData) {
+    if (!htmlContent) {
       return res.status(400).json({
         success: false,
-        message: 'Report data is required'
+        message: 'HTML content is required'
       });
     }
 
-    console.log('Printing day report to thermal printer...');
-    const printResult = await printDayReportToThermalPrinter(reportData, printerName);
-    
+    if (!printerName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Printer name is required'
+      });
+    }
+
+    console.log(`Print request received for printer: ${printerName}`);
+    console.log(`PDF Options:`, pdfOptions);
+    console.log(`Paper Size: ${paperSize || 'A7'}`);
+
+    const printResult = await printHTML(
+      htmlContent,
+      printerName,
+      pdfOptions || {},
+      paperSize || 'A7'
+    );
+
     if (printResult.success) {
       res.json({
         success: true,
-        message: printResult.message,
-        pdfPath: printResult.pdfPath
+        message: printResult.message
       });
     } else {
       res.status(500).json({
         success: false,
-        message: printResult.error || 'Failed to print day report'
+        message: printResult.error || 'Failed to print'
       });
     }
   } catch (error) {
-    console.error('Error printing day report:', error);
+    console.error('Error in print endpoint:', error);
     res.status(500).json({
       success: false,
-      message: 'Error printing day report',
+      message: 'Error processing print request',
       error: error.message
     });
   }
 });
 
-// Download generated PDF files
-app.get('/api/download/:filename', (req, res) => {
-  try {
-    const filename = req.params.filename;
-    const filePath = path.join(__dirname, 'temp', filename);
-    
-    if (!require('fs').existsSync(filePath)) {
-      return res.status(404).json({
-        success: false,
-        message: 'File not found'
-      });
-    }
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.sendFile(filePath);
-  } catch (error) {
-    console.error('Error downloading file:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error downloading file',
-      error: error.message
-    });
-  }
-});
-
+/**
+ * Health Check Endpoint
+ * GET /api/health
+ */
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    version: process.env.npm_package_version || '1.0.0'
+    version: process.env.npm_package_version || '1.0.0',
+    service: 'Nimbus Printer Microservice'
   });
 });
 
-
 app.listen(PORT, () => {
-  console.log(`Nimbus PDF Printer Service running on port ${PORT}`);
+  console.log(`====================================`);
+  console.log(`Nimbus Printer Microservice`);
+  console.log(`Running on port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
-  console.log(`Status: http://localhost:${PORT}/api/status`);
+  console.log(`====================================`);
 });
 
 module.exports = app;

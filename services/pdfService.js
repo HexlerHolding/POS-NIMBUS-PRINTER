@@ -3,9 +3,7 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
-
 // Attempt to require pdf-to-printer, but handle if not installed
-
 let printer;
 try {
   printer = require('pdf-to-printer');
@@ -625,104 +623,91 @@ function generateReceiptHTML(receipt) {
 async function generateAndSaveKitchenPDF(receipt, outputPath, isDuplicate = false) {
   const htmlContent = generateKitchenReceiptHTML(receipt, isDuplicate);
   const htmlPath = path.join(tempDir, `kitchen-receipt-${Date.now()}.html`);
-
-  fs.writeFileSync(htmlPath, htmlContent);
-  console.log(`Kitchen HTML file saved to: ${htmlPath}`);
+/**
+ * Convert HTML content to PDF
+ * @param {string} htmlContent - The HTML content to convert
+ * @param {string} outputPath - The path to save the PDF
+ * @param {object} options - PDF generation options
+ * @param {string} options.width - Paper width (e.g., '72mm', '58mm')
+ * @param {string} options.height - Paper height (e.g., '150mm', 'auto')
+ * @param {object} options.margin - Margins { top, right, bottom, left }
+ * @returns {Promise<boolean>} - Returns true if successful
+ */
+async function generatePDFFromHTML(htmlContent, outputPath, options = {}) {
+  const htmlPath = path.join(tempDir, `temp-${Date.now()}.html`);
 
   try {
+    // Save HTML file for debugging
+    fs.writeFileSync(htmlPath, htmlContent);
+    console.log(`HTML file saved to: ${htmlPath}`);
+
     const browser = await puppeteer.launch({ headless: 'new' });
     const page = await browser.newPage();
 
     await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
 
-    const baseHeight = 90; // Base height for kitchen receipt (smaller for 58mm)
-    const itemHeight = 9; // Height per item for 58mm printer
-    const bottomPadding = 25; // Extra padding for kitchen use
-    const itemCount = receipt.items ? receipt.items.length : 2;
-    const estimatedHeight = baseHeight + (itemCount * itemHeight) + bottomPadding;
-
-    await page.pdf({
+    // Default options
+    const pdfOptions = {
       path: outputPath,
-      width: '58mm',
-      height: `${estimatedHeight}mm`,
-      margin: {
-        top: '3mm',
-        right: '2mm',
-        bottom: '3mm',
-        left: '4mm'
-      },
-      printBackground: true
-    });
-
-    await browser.close();
-    console.log(`Kitchen PDF file saved to: ${outputPath}`);
-    return true;
-  } catch (error) {
-    console.error('Error generating kitchen PDF:', error);
-    return false;
-  }
-}
-
-async function generateAndSavePDF(receipt, outputPath) {
-  const htmlContent = generateReceiptHTML(receipt);
-  const htmlPath = path.join(tempDir, `receipt-${Date.now()}.html`);
-
-  fs.writeFileSync(htmlPath, htmlContent);
-  console.log(`HTML file saved to: ${htmlPath}`);
-
-  try {
-    const browser = await puppeteer.launch({ headless: 'new' });
-    const page = await browser.newPage();
-
-    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
-
-    const baseHeight = 130; // Increased for customer name line
-    const itemHeight = 8;
-    const bottomPadding = 20; // Additional padding for 6-7 lines + dots
-    const itemCount = receipt.items ? receipt.items.length : 2;
-    const estimatedHeight = baseHeight + (itemCount * itemHeight) + bottomPadding;
-
-    await page.pdf({
-      path: outputPath,
-      width: '72mm',
-      height: `${estimatedHeight}mm`,
-      margin: {
+      width: options.width || '72mm',
+      height: options.height || '150mm',
+      margin: options.margin || {
         top: '5mm',
         right: '5mm',
         bottom: '5mm',
         left: '5mm'
       },
       printBackground: true
-    });
+    };
 
+    await page.pdf(pdfOptions);
     await browser.close();
+
     console.log(`PDF file saved to: ${outputPath}`);
     return true;
   } catch (error) {
     console.error('Error generating PDF:', error);
     return false;
+  } finally {
+    // Clean up HTML file
+    try {
+      if (fs.existsSync(htmlPath)) {
+        fs.unlinkSync(htmlPath);
+      }
+    } catch (cleanupError) {
+      console.error('Error cleaning up HTML file:', cleanupError);
+    }
   }
 }
 
+/**
+ * Print PDF to thermal printer
+ * @param {string} pdfPath - Path to the PDF file
+ * @param {string} printerName - Name of the printer
+ * @param {string} paperSize - Paper size (e.g., 'A7', 'A8')
+ * @returns {Promise<string>} - Returns success message
+ */
 async function printPDFToThermalPrinter(pdfPath, printerName = null, paperSize = 'A7') {
   try {
-    // Use printerName from parameter, or fall back to environment variable
-    const finalPrinterName = printerName || null;
+    const finalPrinterName = printerName || process.env.PRINTER_NAME || null;
     console.log(`Attempting to print PDF to ${finalPrinterName || 'default'} printer...`);
 
     if (printer) {
       console.log('Using pdf-to-printer module for printing...');
 
-      const options = { printer: finalPrinterName, copies: 1, scale: 'noscale', paperSize, margin: '0' };
+      const options = {
+        printer: finalPrinterName,
+        copies: 1,
+        scale: 'noscale',
+        paperSize,
+        margin: '0'
+      };
+
       console.log('Print options:', options);
-      try {
-        await printer.print(pdfPath, options);
-        console.log('Print job sent successfully using pdf-to-printer');
-        return 'Print job sent successfully';
-      } catch (err) {
-        console.error('Error printing with pdf-to-printer:', err);
-        throw err;
-      }
+
+      await printer.print(pdfPath, options);
+      console.log('Print job sent successfully using pdf-to-printer');
+      return 'Print job sent successfully';
     } else {
       throw new Error('pdf-to-printer module not available');
     }
@@ -779,153 +764,49 @@ async function generateAndSaveDayReportPDF(reportData, outputPath) {
 }
 
 async function printOrderToThermalPrinters(receiptData) {
+/**
+ * Complete print job: Convert HTML to PDF and print
+ * @param {string} htmlContent - The HTML content to print
+ * @param {string} printerName - Name of the printer
+ * @param {object} pdfOptions - PDF generation options
+ * @param {string} printPaperSize - Paper size for printing (e.g., 'A7', 'A8')
+ * @returns {Promise<object>} - Returns result object with success status
+ */
+async function printHTML(htmlContent, printerName, pdfOptions = {}, printPaperSize = 'A7') {
   try {
     const timestamp = Date.now();
-    const customerOutputPath = path.join(__dirname, '..', 'temp', `customer-receipt-${timestamp}.pdf`);
-    const kitchenOutputPath = path.join(__dirname, '..', 'temp', `kitchen-receipt-${timestamp}.pdf`);
+    const pdfPath = path.join(tempDir, `print-${timestamp}.pdf`);
 
-    // Extract printer names from receipt data, fallback to env variables if not provided
-    const cashierPrinterName = receiptData.cashierPrinterName || process.env.PRINTER_NAME;
-    const kitchenPrinterName = receiptData.kitchenPrinterName || process.env.PRINTER2_NAME;
+    console.log(`Generating PDF for printer: ${printerName}`);
 
-    console.log(`Using cashier printer: ${cashierPrinterName}`);
-    console.log(`Using kitchen printer: ${kitchenPrinterName}`);
-    console.log(`Is paid order: ${receiptData.isPaid}`);
-    console.log(`Skip kitchen print: ${receiptData.skipKitchenPrint}`);
-    console.log(`Skip cashier print: ${receiptData.skipCashierPrint}`);
-
-    // Check printing flags - use explicit skip flags or fall back to legacy logic
-    const skipKitchenPrint = receiptData.skipKitchenPrint;
-    const skipCashierPrint = receiptData.skipCashierPrint;
-    const skipCashierKitchenPrint = receiptData.skipCashierKitchenPrint;
-    // If both are skipped, return early
-    if (skipCashierPrint && skipKitchenPrint) {
-      console.log('Both cashier and kitchen printing skipped');
-      return {
-        customer: { success: true, message: 'Cashier printing skipped as requested' },
-        kitchen: { success: true, message: 'Kitchen printing skipped as requested' }
-      };
-    }
-
-    // Generate PDFs - only if not skipped
-    const pdfGenerationTasks = [];
-    if (!skipCashierPrint) {
-      pdfGenerationTasks.push(generateAndSavePDF(receiptData, customerOutputPath));
-    }
-    if (!skipKitchenPrint) {
-      pdfGenerationTasks.push(generateAndSaveKitchenPDF(receiptData, kitchenOutputPath, receiptData.isDuplicate));
-    }
-
-    const pdfResults = await Promise.all(pdfGenerationTasks);
-    let customerPdfGenerated = skipCashierPrint ? true : pdfResults[0];
-    let kitchenPdfGenerated = skipKitchenPrint ? true : (skipCashierPrint ? pdfResults[0] : pdfResults[1]);
-
-    if ((!skipCashierPrint && !customerPdfGenerated) || (!skipKitchenPrint && !kitchenPdfGenerated)) {
-      throw new Error('Failed to generate PDF receipts');
-    }
-
-    // Prepare print jobs - only for non-skipped printers
-    const printJobs = [];
-    if (!skipCashierPrint) {
-      printJobs.push(printPDFToThermalPrinter(customerOutputPath, cashierPrinterName));
-    }
-    if (!skipCashierKitchenPrint) {
-      // Generate duplicate kitchen receipt for cashier printer
-      const isDuplicate = receiptData.isDuplicate ? true : false;
-      if (isDuplicate) {
-        const duplicateKitchenOutputPath = path.join(__dirname, '..', 'temp', `duplicate-kitchen-receipt-${timestamp}.pdf`);
-        await generateAndSaveKitchenPDF(receiptData, duplicateKitchenOutputPath, true);
-        printJobs.push(printPDFToThermalPrinter(duplicateKitchenOutputPath, cashierPrinterName));
-      } else {
-        printJobs.push(printPDFToThermalPrinter(kitchenOutputPath, kitchenPrinterName, 'A8'));
-      }
-    }
-
-    if (!skipKitchenPrint) {
-      printJobs.push(printPDFToThermalPrinter(kitchenOutputPath, kitchenPrinterName, 'A8'));
-    }
-
-    // Run print jobs in parallel
-    const printResults = await Promise.allSettled(printJobs);
-    const results = {};
-
-    // Determine result indices based on what was printed
-    let customerResultIndex = 0;
-    let kitchenResultIndex = skipCashierPrint ? 0 : 1;
-
-    // Process cashier printer result
-    if (skipCashierPrint) {
-      let reason = 'explicit skip request';
-      results.customer = { success: true, message: `Cashier printing skipped due to ${reason}` };
-      console.log(`Cashier printing skipped - ${reason}`);
-    } else {
-      const customerResult = printResults[customerResultIndex];
-      if (customerResult.status === 'fulfilled') {
-        results.customer = { success: true, message: customerResult.value };
-        console.log('Customer receipt printed successfully');
-      } else {
-        results.customer = { success: false, error: customerResult.reason.message };
-        console.error('Failed to print customer receipt:', customerResult.reason);
-      }
-    }
-
-    // Process kitchen printer result
-    if (skipKitchenPrint) {
-      let reason = 'explicit skip request';
-      if (receiptData.skipKitchenPrint) {
-        reason = 'skip kitchen print flag';
-      }
-      results.kitchen = { success: true, message: `Kitchen printing skipped due to ${reason}` };
-      console.log(`Kitchen printing skipped - ${reason}`);
-    } else {
-      const kitchenResult = printResults[kitchenResultIndex];
-      if (kitchenResult.status === 'fulfilled') {
-        results.kitchen = { success: true, message: kitchenResult.value };
-        console.log('Kitchen receipt printed successfully');
-      } else {
-        results.kitchen = { success: false, error: kitchenResult.reason.message };
-        console.error('Failed to print kitchen receipt:', kitchenResult.reason);
-      }
-    }
-
-    return results;
-  } catch (error) {
-    console.error('Error in printOrderToThermalPrinters:', error);
-    throw error;
-  }
-}
-
-async function printDayReportToThermalPrinter(reportData, printerName = null) {
-  try {
-    const timestamp = Date.now();
-    const outputPath = path.join(__dirname, '..', 'temp', `day-report-${timestamp}.pdf`);
-
-    // Use provided printer name or fall back to cashier printer from env
-    const finalPrinterName = printerName || process.env.PRINTER_NAME;
-
-    console.log(`Generating day report PDF...`);
-    console.log(`Using cashier printer: ${finalPrinterName}`);
-
-    // Generate the PDF first
-    const pdfGenerated = await generateAndSaveDayReportPDF(reportData, outputPath);
+    // Generate PDF
+    const pdfGenerated = await generatePDFFromHTML(htmlContent, pdfPath, pdfOptions);
 
     if (!pdfGenerated) {
-      throw new Error('Failed to generate day report PDF');
+      throw new Error('Failed to generate PDF');
     }
 
-    // Print the PDF to thermal printer
-    console.log(`Sending day report to printer: ${finalPrinterName}`);
-    const printResult = await printPDFToThermalPrinter(outputPath, finalPrinterName, 'A7');
+    // Print PDF
+    console.log(`Sending to printer: ${printerName}`);
+    const printResult = await printPDFToThermalPrinter(pdfPath, printerName, printPaperSize);
 
-    console.log('Day report printed successfully');
+    // Clean up PDF file
+    try {
+      if (fs.existsSync(pdfPath)) {
+        // fs.unlinkSync(pdfPath); // COMMENTED OUT FOR DEBUGGING
+      }
+    } catch (cleanupError) {
+      console.error('Error cleaning up PDF file:', cleanupError);
+    }
+
+    console.log('Print job completed successfully');
     return {
       success: true,
-      message: 'Day report printed successfully',
-      pdfPath: outputPath
+      message: printResult
     };
 
   } catch (error) {
-    console.error('Error printing day report:', error);
+    console.error('Error in printHTML:', error);
     return {
       success: false,
       error: error.message
@@ -934,10 +815,7 @@ async function printDayReportToThermalPrinter(reportData, printerName = null) {
 }
 
 module.exports = {
-  generateAndSavePDF,
-  generateAndSaveKitchenPDF,
-  generateAndSaveDayReportPDF,
+  generatePDFFromHTML,
   printPDFToThermalPrinter,
-  printOrderToThermalPrinters,
-  printDayReportToThermalPrinter,
+  printHTML
 };
