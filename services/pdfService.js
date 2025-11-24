@@ -258,13 +258,13 @@ function generateDayReportHTML(reportData) {
       <div class="center" style="font-size: 10px; margin: 10px 0;">
           Report generated on:<br>
           ${new Date().toLocaleString('en-US', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          })}
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  })}
       </div>
 
       <!-- Padding for thermal printer -->
@@ -751,7 +751,7 @@ async function generateAndSaveDayReportPDF(reportData, outputPath) {
     const paymentItemHeight = 4; // Height per payment item
     const orderTypeItemHeight = 4; // Height per order type item
     const bottomPadding = 25; // Extra padding
-    
+
     const paymentItems = reportData.paymentWiseSales?.length || 0;
     const orderTypeItems = reportData.orderTypeSales?.length || 0;
     const estimatedHeight = baseHeight + (6 * sectionHeight) + (paymentItems * paymentItemHeight) + (orderTypeItems * orderTypeItemHeight) + bottomPadding;
@@ -831,9 +831,14 @@ async function printOrderToThermalPrinters(receiptData) {
     }
     if (!skipCashierKitchenPrint) {
       // Generate duplicate kitchen receipt for cashier printer
-      const duplicateKitchenOutputPath = path.join(__dirname, '..', 'temp', `duplicate-kitchen-receipt-${timestamp}.pdf`);
-      await generateAndSaveKitchenPDF(receiptData, duplicateKitchenOutputPath, true);
-      printJobs.push(printPDFToThermalPrinter(duplicateKitchenOutputPath, cashierPrinterName));
+      const isDuplicate = receiptData.isDuplicate ? true : false;
+      if (isDuplicate) {
+        const duplicateKitchenOutputPath = path.join(__dirname, '..', 'temp', `duplicate-kitchen-receipt-${timestamp}.pdf`);
+        await generateAndSaveKitchenPDF(receiptData, duplicateKitchenOutputPath, true);
+        printJobs.push(printPDFToThermalPrinter(duplicateKitchenOutputPath, cashierPrinterName));
+      } else {
+        printJobs.push(printPDFToThermalPrinter(kitchenOutputPath, kitchenPrinterName, 'A8'));
+      }
     }
 
     if (!skipKitchenPrint) {
@@ -894,31 +899,31 @@ async function printDayReportToThermalPrinter(reportData, printerName = null) {
   try {
     const timestamp = Date.now();
     const outputPath = path.join(__dirname, '..', 'temp', `day-report-${timestamp}.pdf`);
-    
+
     // Use provided printer name or fall back to cashier printer from env
     const finalPrinterName = printerName || process.env.PRINTER_NAME;
-    
+
     console.log(`Generating day report PDF...`);
     console.log(`Using cashier printer: ${finalPrinterName}`);
-    
+
     // Generate the PDF first
     const pdfGenerated = await generateAndSaveDayReportPDF(reportData, outputPath);
-    
+
     if (!pdfGenerated) {
       throw new Error('Failed to generate day report PDF');
     }
-    
+
     // Print the PDF to thermal printer
     console.log(`Sending day report to printer: ${finalPrinterName}`);
     const printResult = await printPDFToThermalPrinter(outputPath, finalPrinterName, 'A7');
-    
+
     console.log('Day report printed successfully');
     return {
       success: true,
       message: 'Day report printed successfully',
       pdfPath: outputPath
     };
-    
+
   } catch (error) {
     console.error('Error printing day report:', error);
     return {
