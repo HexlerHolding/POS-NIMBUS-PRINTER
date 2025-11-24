@@ -140,7 +140,7 @@ async function printHTML(htmlContent, printerName, pdfOptions = {}, printPaperSi
     // Clean up PDF file
     try {
       if (fs.existsSync(pdfPath)) {
-        fs.unlinkSync(pdfPath);
+        // fs.unlinkSync(pdfPath); // COMMENTED OUT FOR DEBUGGING
       }
     } catch (cleanupError) {
       console.error('Error cleaning up PDF file:', cleanupError);
