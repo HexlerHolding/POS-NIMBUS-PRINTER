@@ -18,28 +18,44 @@ if (!fs.existsSync(tempDir)) {
 }
 
 /**
- * Convert HTML content to PDF
+ * Convert HTML content to PDF with retry logic
  * @param {string} htmlContent - The HTML content to convert
  * @param {string} outputPath - The path to save the PDF
  * @param {object} options - PDF generation options
  * @param {string} options.width - Paper width (e.g., '72mm', '58mm')
  * @param {string} options.height - Paper height (e.g., '150mm', 'auto')
  * @param {object} options.margin - Margins { top, right, bottom, left }
+ * @param {number} retries - Number of retries remaining
  * @returns {Promise<boolean>} - Returns true if successful
  */
-async function generatePDFFromHTML(htmlContent, outputPath, options = {}) {
+async function generatePDFFromHTML(htmlContent, outputPath, options = {}, retries = 2) {
   const htmlPath = path.join(tempDir, `temp-${Date.now()}.html`);
   let page = null;
+  let browser = null;
 
   try {
     // Save HTML file for debugging
     fs.writeFileSync(htmlPath, htmlContent);
 
-    const browser = await browserPool.getBrowser();
-    page = await browser.newPage();
+    // Get a healthy browser from the pool
+    browser = await browserPool.getBrowser();
+
+    // Create new page with timeout
+    page = await Promise.race([
+      browser.newPage(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Page creation timeout')), 30000)
+      )
+    ]);
+
+    // Set page timeout
+    page.setDefaultTimeout(30000);
 
     // Optimized: use 'load' instead of 'networkidle0' for faster processing
-    await page.setContent(htmlContent, { waitUntil: 'load' });
+    await page.setContent(htmlContent, {
+      waitUntil: 'load',
+      timeout: 30000
+    });
 
     // Default options
     const pdfOptions = {
@@ -52,14 +68,41 @@ async function generatePDFFromHTML(htmlContent, outputPath, options = {}) {
         bottom: '5mm',
         left: '5mm'
       },
-      printBackground: true
+      printBackground: true,
+      timeout: 30000
     };
 
     await page.pdf(pdfOptions);
 
     return true;
   } catch (error) {
-    console.error('Error generating PDF:', error);
+    console.error(`Error generating PDF (${retries} retries left):`, error.message);
+
+    // Retry on specific errors
+    if (retries > 0 && (
+      error.message.includes('Target closed') ||
+      error.message.includes('Session closed') ||
+      error.message.includes('Protocol error') ||
+      error.message.includes('timeout')
+    )) {
+      console.log(`Retrying PDF generation... (${retries} attempts remaining)`);
+
+      // Close the page if it exists
+      if (page) {
+        try {
+          await page.close();
+        } catch (e) {
+          // Ignore close errors during retry
+        }
+      }
+
+      // Wait a bit before retry
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Retry with one less retry count
+      return generatePDFFromHTML(htmlContent, outputPath, options, retries - 1);
+    }
+
     return false;
   } finally {
     // Close the page (not the browser)
