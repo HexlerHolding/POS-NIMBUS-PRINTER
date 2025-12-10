@@ -1,6 +1,6 @@
-const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const browserPool = require('./browserPool');
 require('dotenv').config();
 
 // Attempt to require pdf-to-printer, but handle if not installed
@@ -29,16 +29,17 @@ if (!fs.existsSync(tempDir)) {
  */
 async function generatePDFFromHTML(htmlContent, outputPath, options = {}) {
   const htmlPath = path.join(tempDir, `temp-${Date.now()}.html`);
+  let page = null;
 
   try {
     // Save HTML file for debugging
     fs.writeFileSync(htmlPath, htmlContent);
-    console.log(`HTML file saved to: ${htmlPath}`);
 
-    const browser = await puppeteer.launch({ headless: 'new' });
-    const page = await browser.newPage();
+    const browser = await browserPool.getBrowser();
+    page = await browser.newPage();
 
-    await page.setContent(htmlContent, { waitUntil: 'networkidle0' });
+    // Optimized: use 'load' instead of 'networkidle0' for faster processing
+    await page.setContent(htmlContent, { waitUntil: 'load' });
 
     // Default options
     const pdfOptions = {
@@ -55,14 +56,21 @@ async function generatePDFFromHTML(htmlContent, outputPath, options = {}) {
     };
 
     await page.pdf(pdfOptions);
-    await browser.close();
 
-    console.log(`PDF file saved to: ${outputPath}`);
     return true;
   } catch (error) {
     console.error('Error generating PDF:', error);
     return false;
   } finally {
+    // Close the page (not the browser)
+    if (page) {
+      try {
+        await page.close();
+      } catch (closeError) {
+        console.error('Error closing page:', closeError);
+      }
+    }
+
     // Clean up HTML file
     try {
       if (fs.existsSync(htmlPath)) {
@@ -87,7 +95,6 @@ async function printPDFToThermalPrinter(pdfPath, printerName = null, paperSize =
     console.log(`Attempting to print PDF to ${finalPrinterName || 'default'} printer...`);
 
     if (printer) {
-      console.log('Using pdf-to-printer module for printing...');
 
       const options = {
         printer: finalPrinterName,
@@ -97,10 +104,8 @@ async function printPDFToThermalPrinter(pdfPath, printerName = null, paperSize =
         margin: '0'
       };
 
-      console.log('Print options:', options);
 
       await printer.print(pdfPath, options);
-      console.log('Print job sent successfully using pdf-to-printer');
       return 'Print job sent successfully';
     } else {
       throw new Error('pdf-to-printer module not available');
@@ -134,19 +139,17 @@ async function printHTML(htmlContent, printerName, pdfOptions = {}, printPaperSi
     }
 
     // Print PDF
-    console.log(`Sending to printer: ${printerName}`);
     const printResult = await printPDFToThermalPrinter(pdfPath, printerName, printPaperSize);
 
     // Clean up PDF file
     try {
       if (fs.existsSync(pdfPath)) {
-        // fs.unlinkSync(pdfPath); // COMMENTED OUT FOR DEBUGGING
+        fs.unlinkSync(pdfPath); // COMMENTED OUT FOR DEBUGGING
       }
     } catch (cleanupError) {
       console.error('Error cleaning up PDF file:', cleanupError);
     }
 
-    console.log('Print job completed successfully');
     return {
       success: true,
       message: printResult
@@ -161,8 +164,77 @@ async function printHTML(htmlContent, printerName, pdfOptions = {}, printPaperSi
   }
 }
 
+/**
+ * Batch print multiple receipts in parallel
+ * @param {Array} printJobs - Array of print job objects
+ * @returns {Promise<object>} - Returns results for each job
+ */
+async function printBatch(printJobs) {
+  try {
+    console.log(`Processing batch of ${printJobs.length} print jobs...`);
+
+    // Process all jobs in parallel
+    const results = await Promise.allSettled(
+      printJobs.map(async (job, index) => {
+        try {
+          const { htmlContent, jsonContent, printerName, pdfOptions, paperSize, type, useJSON } = job;
+
+          // Use JSON or HTML content based on flag
+          const content = useJSON ? jsonContent : htmlContent;
+
+          if (!content || !printerName) {
+            throw new Error(`Invalid job ${index}: missing content or printer name`);
+          }
+
+          const result = await printHTML(content, printerName, pdfOptions, paperSize);
+
+          return {
+            type,
+            ...result
+          };
+        } catch (error) {
+          return {
+            type: job.type,
+            success: false,
+            error: error.message
+          };
+        }
+      })
+    );
+
+    // Format results
+    const formattedResults = {};
+    results.forEach((result, index) => {
+      const jobType = printJobs[index].type;
+      if (result.status === 'fulfilled') {
+        formattedResults[jobType] = result.value;
+      } else {
+        formattedResults[jobType] = {
+          success: false,
+          error: result.reason.message
+        };
+      }
+    });
+
+    console.log('Batch print completed');
+    return {
+      success: true,
+      message: 'Batch print completed',
+      results: formattedResults
+    };
+
+  } catch (error) {
+    console.error('Error in batch print:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
 module.exports = {
   generatePDFFromHTML,
   printPDFToThermalPrinter,
-  printHTML
+  printHTML,
+  printBatch
 };

@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-const { printHTML } = require('./services/pdfService');
+const { printHTML, printBatch } = require('./services/pdfService');
+const browserPool = require('./services/browserPool');
 const path = require('path');
 
 const app = express();
@@ -77,10 +78,7 @@ app.post('/api/print', async (req, res) => {
       });
     }
 
-    console.log(`Print request received for printer: ${printerName}`);
-    console.log(`PDF Options:`, pdfOptions);
-    console.log(`Paper Size: ${paperSize || 'A7'}`);
-
+    console.log(`Print request received for printer: ${pdfOptions}`);
     const printResult = await printHTML(
       htmlContent,
       printerName,
@@ -109,13 +107,84 @@ app.post('/api/print', async (req, res) => {
   }
 });
 
+/**
+ * Batch Print Endpoint
+ * Accepts multiple print jobs and processes them in parallel
+ * POST /api/print-batch
+ * Body: {
+ *   printJobs: [{
+ *     htmlContent: string,
+ *     jsonContent: string,
+ *     printerName: string,
+ *     pdfOptions: object,
+ *     paperSize: string,
+ *     type: string,
+ *     useJSON: boolean
+ *   }],
+ *   useJSONGeneration: boolean
+ * }
+ */
+app.post('/api/print-batch', async (req, res) => {
+  try {
+    const { printJobs, useJSONGeneration } = req.body;
 
-app.listen(PORT, () => {
+    if (!printJobs || !Array.isArray(printJobs) || printJobs.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'printJobs array is required'
+      });
+    }
+
+    console.log(`Batch print request received with ${printJobs.length} jobs`);
+
+    // Add useJSON flag to each job
+    const jobsWithFlags = printJobs.map(job => ({
+      ...job,
+      useJSON: useJSONGeneration
+    }));
+
+    const result = await printBatch(jobsWithFlags);
+
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(500).json(result);
+    }
+  } catch (error) {
+    console.error('Error in batch print endpoint:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error processing batch print request',
+      error: error.message
+    });
+  }
+});
+
+
+app.listen(PORT, async () => {
   console.log(`====================================`);
   console.log(`Nimbus Printer Microservice`);
   console.log(`Running on port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/api/health`);
   console.log(`====================================`);
+
+  // Initialize browser pool on startup
+  console.log('Initializing browser pool...');
+  await browserPool.initialize();
+  console.log('Browser pool ready');
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  await browserPool.shutdown();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  console.log('SIGINT signal received: closing HTTP server');
+  await browserPool.shutdown();
+  process.exit(0);
 });
 
 module.exports = app;
