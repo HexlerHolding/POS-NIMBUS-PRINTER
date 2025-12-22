@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const { printHTML, printBatch } = require('./services/pdfService');
 const browserPool = require('./services/browserPool');
+const logger = require('./services/logger');
 const path = require('path');
 
 const app = express();
@@ -42,11 +43,13 @@ app.use((req, res, next) => {
 app.use(express.json());
 
 app.get('/api/health', (req, res) => {
-  res.json({
+  const healthData = {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     version: process.env.npm_package_version || '1.0.0'
-  });
+  };
+  logger.debug('Health check requested', healthData);
+  res.json(healthData);
 });
 
 /**
@@ -65,6 +68,7 @@ app.post('/api/print', async (req, res) => {
     const { htmlContent, printerName, pdfOptions, paperSize } = req.body;
 
     if (!htmlContent) {
+      logger.warn('Print request rejected - missing HTML content');
       return res.status(400).json({
         success: false,
         message: 'HTML content is required'
@@ -72,13 +76,18 @@ app.post('/api/print', async (req, res) => {
     }
 
     if (!printerName) {
+      logger.warn('Print request rejected - missing printer name');
       return res.status(400).json({
         success: false,
         message: 'Printer name is required'
       });
     }
 
-    console.log(`Print request received for printer: ${pdfOptions}`);
+    logger.info('Print request received', {
+      printer: printerName,
+      paperSize: paperSize || 'A7'
+    });
+
     const printResult = await printHTML(
       htmlContent,
       printerName,
@@ -94,11 +103,13 @@ app.post('/api/print', async (req, res) => {
     } else {
       res.status(500).json({
         success: false,
-        message: printResult.error || 'Failed to print'
+        message: printResult.error || 'Failed to print',
+        errorType: printResult.errorType,
+        errorDetails: printResult.errorDetails
       });
     }
   } catch (error) {
-    console.error('Error in print endpoint:', error);
+    logger.error('Unexpected error in print endpoint', error);
     res.status(500).json({
       success: false,
       message: 'Error processing print request',
@@ -129,13 +140,17 @@ app.post('/api/print-batch', async (req, res) => {
     const { printJobs, useJSONGeneration } = req.body;
 
     if (!printJobs || !Array.isArray(printJobs) || printJobs.length === 0) {
+      logger.warn('Batch print request rejected - invalid printJobs array');
       return res.status(400).json({
         success: false,
         message: 'printJobs array is required'
       });
     }
 
-    console.log(`Batch print request received with ${printJobs.length} jobs`);
+    logger.info('Batch print request received', {
+      jobCount: printJobs.length,
+      useJSONGeneration
+    });
 
     // Add useJSON flag to each job
     const jobsWithFlags = printJobs.map(job => ({
@@ -151,7 +166,7 @@ app.post('/api/print-batch', async (req, res) => {
       res.status(500).json(result);
     }
   } catch (error) {
-    console.error('Error in batch print endpoint:', error);
+    logger.error('Unexpected error in batch print endpoint', error);
     res.status(500).json({
       success: false,
       message: 'Error processing batch print request',
@@ -162,29 +177,59 @@ app.post('/api/print-batch', async (req, res) => {
 
 
 app.listen(PORT, async () => {
-  console.log(`====================================`);
-  console.log(`Nimbus Printer Microservice`);
-  console.log(`Running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/api/health`);
-  console.log(`====================================`);
+  logger.info(`====================================`);
+  logger.info(`Nimbus Printer Microservice`);
+  logger.info(`Running on port ${PORT}`);
+  logger.info(`Health check: http://localhost:${PORT}/api/health`);
+  logger.info(`Metrics: http://localhost:${PORT}/api/metrics`);
+  logger.info(`====================================`);
 
   // Initialize browser pool on startup
-  console.log('Initializing browser pool...');
-  await browserPool.initialize();
-  console.log('Browser pool ready');
+  logger.info('Initializing browser pool...');
+  try {
+    await browserPool.initialize();
+    logger.info('Browser pool ready - service is operational');
+  } catch (error) {
+    logger.critical('Failed to initialize browser pool', error);
+    process.exit(1);
+  }
 });
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  await browserPool.shutdown();
-  process.exit(0);
+  logger.info('SIGTERM signal received: gracefully shutting down');
+  try {
+    await browserPool.shutdown();
+    logger.info('Shutdown complete');
+    process.exit(0);
+  } catch (error) {
+    logger.error('Error during shutdown', error);
+    process.exit(1);
+  }
 });
 
 process.on('SIGINT', async () => {
-  console.log('SIGINT signal received: closing HTTP server');
-  await browserPool.shutdown();
-  process.exit(0);
+  logger.info('SIGINT signal received: gracefully shutting down');
+  try {
+    await browserPool.shutdown();
+    logger.info('Shutdown complete');
+    process.exit(0);
+  } catch (error) {
+    logger.error('Error during shutdown', error);
+    process.exit(1);
+  }
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  logger.critical('Uncaught exception - service may be unstable', error);
+  // Don't exit immediately - let PM2 decide based on crash threshold
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.critical('Unhandled promise rejection', new Error(String(reason)), {
+    promise: String(promise)
+  });
 });
 
 module.exports = app;

@@ -1,4 +1,5 @@
 const puppeteer = require('puppeteer');
+const logger = require('./logger');
 
 class BrowserPool {
   constructor(poolSize = 2, restartThreshold = 100) {
@@ -13,7 +14,7 @@ class BrowserPool {
 
   async launchBrowser(index) {
     try {
-      console.log(`Launching browser ${index + 1}...`);
+      logger.info(`Launching browser instance`, { browserIndex: index + 1 });
       const browser = await puppeteer.launch({
         headless: 'new',
         args: [
@@ -29,14 +30,17 @@ class BrowserPool {
 
       // Handle browser disconnection
       browser.on('disconnected', () => {
-        console.warn(`Browser ${index + 1} disconnected. Will be replaced on next use.`);
+        logger.warn(`Browser disconnected unexpectedly`, {
+          browserIndex: index + 1,
+          action: 'Will be replaced on next use'
+        });
         this.browsers[index] = null;
         this.browserStats[index] = null;
       });
 
       return browser;
     } catch (error) {
-      console.error(`Failed to launch browser ${index + 1}:`, error);
+      logger.error(`Failed to launch browser`, error, { browserIndex: index + 1 });
       throw error;
     }
   }
@@ -44,7 +48,7 @@ class BrowserPool {
   async initialize() {
     if (this.initialized) return;
 
-    console.log(`Initializing browser pool with ${this.poolSize} browsers...`);
+    logger.info(`Initializing browser pool`, { poolSize: this.poolSize });
 
     for (let i = 0; i < this.poolSize; i++) {
       try {
@@ -54,16 +58,25 @@ class BrowserPool {
           operationCount: 0,
           lastRestart: Date.now()
         });
-        console.log(`Browser ${i + 1}/${this.poolSize} launched successfully`);
+        logger.info(`Browser launched successfully`, {
+          browserIndex: i + 1,
+          total: this.poolSize
+        });
       } catch (error) {
-        console.error(`Failed to launch browser ${i + 1}:`, error);
+        logger.error(`Failed to launch browser during initialization`, error, {
+          browserIndex: i + 1
+        });
         this.browsers.push(null);
         this.browserStats.push(null);
       }
     }
 
     this.initialized = true;
-    console.log(`Browser pool initialized with ${this.browsers.filter(b => b).length} browsers`);
+    const healthyCount = this.browsers.filter(b => b).length;
+    logger.info(`Browser pool initialized`, {
+      healthyBrowsers: healthyCount,
+      totalBrowsers: this.poolSize
+    });
 
     // Start periodic health check
     this.startHealthCheck();
@@ -72,7 +85,7 @@ class BrowserPool {
   startHealthCheck() {
     // Check browser health every 5 minutes
     this.healthCheckInterval = setInterval(async () => {
-      console.log('Running browser health check...');
+      logger.debug('Running periodic browser health check');
       for (let i = 0; i < this.browsers.length; i++) {
         await this.checkAndRestartBrowser(i, 'periodic-check');
       }
@@ -109,14 +122,22 @@ class BrowserPool {
       (Date.now() - stats.lastRestart) >= this.restartInterval;
 
     if (shouldRestart) {
-      console.log(`Restarting browser ${index + 1} (reason: ${reason})`);
+      logger.info(`Restarting browser`, {
+        browserIndex: index + 1,
+        reason,
+        operationCount: stats.operationCount,
+        uptimeMs: Date.now() - stats.lastRestart
+      });
 
       // Close old browser
       if (browser) {
         try {
           await browser.close();
         } catch (error) {
-          console.error(`Error closing browser ${index + 1}:`, error);
+          logger.warn(`Error closing browser during restart`, {
+            browserIndex: index + 1,
+            error: error.message
+          });
         }
       }
 
@@ -128,9 +149,13 @@ class BrowserPool {
           operationCount: 0,
           lastRestart: Date.now()
         };
-        console.log(`Browser ${index + 1} restarted successfully`);
+        logger.info(`Browser restarted successfully`, { browserIndex: index + 1 });
+        logger.incrementBrowserRestart();
       } catch (error) {
-        console.error(`Failed to restart browser ${index + 1}:`, error);
+        logger.critical(`Failed to restart browser - pool degraded`, error, {
+          browserIndex: index + 1,
+          healthyBrowsers: this.browsers.filter(b => b).length - 1
+        });
         this.browsers[index] = null;
         this.browserStats[index] = null;
       }
@@ -164,18 +189,32 @@ class BrowserPool {
         if (stats) {
           stats.operationCount++;
         }
+        logger.debug('Browser allocated for operation', {
+          browserIndex: index + 1,
+          operationCount: stats.operationCount
+        });
         return currentBrowser;
       }
 
       retries++;
-      console.warn(`Browser ${index + 1} not healthy, trying next browser (retry ${retries}/${maxRetries})`);
+      logger.warn(`Browser not healthy, trying next browser`, {
+        browserIndex: index + 1,
+        retry: retries,
+        maxRetries
+      });
     }
 
+    const healthyCount = this.browsers.filter(b => b).length;
+    logger.critical('No healthy browsers available in pool', null, {
+      retriesAttempted: maxRetries,
+      healthyBrowsers: healthyCount,
+      totalBrowsers: this.poolSize
+    });
     throw new Error('No healthy browsers available in pool after retries');
   }
 
   async shutdown() {
-    console.log('Shutting down browser pool...');
+    logger.info('Shutting down browser pool');
 
     // Clear health check interval
     if (this.healthCheckInterval) {
@@ -188,7 +227,10 @@ class BrowserPool {
         try {
           await browser.close();
         } catch (error) {
-          console.error(`Error closing browser ${i + 1}:`, error);
+          logger.warn(`Error closing browser during shutdown`, {
+            browserIndex: i + 1,
+            error: error.message
+          });
         }
       }
     }
@@ -196,7 +238,7 @@ class BrowserPool {
     this.browsers = [];
     this.browserStats = [];
     this.initialized = false;
-    console.log('Browser pool shut down');
+    logger.info('Browser pool shut down successfully');
   }
 }
 

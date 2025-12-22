@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const browserPool = require('./browserPool');
+const logger = require('./logger');
 require('dotenv').config();
 
 // Attempt to require pdf-to-printer, but handle if not installed
@@ -8,7 +9,7 @@ let printer;
 try {
   printer = require('pdf-to-printer');
 } catch (error) {
-  console.warn('pdf-to-printer module not found. Printing functionality will be limited.');
+  logger.warn('pdf-to-printer module not found. Printing functionality will be limited.');
   printer = null;
 }
 
@@ -26,12 +27,13 @@ if (!fs.existsSync(tempDir)) {
  * @param {string} options.height - Paper height (e.g., '150mm', 'auto')
  * @param {object} options.margin - Margins { top, right, bottom, left }
  * @param {number} retries - Number of retries remaining
- * @returns {Promise<boolean>} - Returns true if successful
+ * @returns {Promise<object>} - Returns {success: boolean, error?: Error}
  */
 async function generatePDFFromHTML(htmlContent, outputPath, options = {}, retries = 2) {
   const htmlPath = path.join(tempDir, `temp-${Date.now()}.html`);
   let page = null;
   let browser = null;
+  let lastError = null;
 
   try {
     // Save HTML file for debugging
@@ -74,18 +76,25 @@ async function generatePDFFromHTML(htmlContent, outputPath, options = {}, retrie
 
     await page.pdf(pdfOptions);
 
-    return true;
-  } catch (error) {
-    console.error(`Error generating PDF (${retries} retries left):`, error.message);
+    logger.debug('PDF generated successfully', { outputPath });
+    return { success: true };
 
-    // Retry on specific errors
-    if (retries > 0 && (
+  } catch (error) {
+    lastError = error;
+
+    // Determine if error is retryable
+    const isRetryable =
       error.message.includes('Target closed') ||
       error.message.includes('Session closed') ||
       error.message.includes('Protocol error') ||
-      error.message.includes('timeout')
-    )) {
-      console.log(`Retrying PDF generation... (${retries} attempts remaining)`);
+      error.message.includes('timeout');
+
+    if (retries > 0 && isRetryable) {
+      logger.warn(`PDF generation failed, retrying`, {
+        retriesLeft: retries,
+        errorType: error.message,
+        isRetryable
+      });
 
       // Close the page if it exists
       if (page) {
@@ -103,14 +112,23 @@ async function generatePDFFromHTML(htmlContent, outputPath, options = {}, retrie
       return generatePDFFromHTML(htmlContent, outputPath, options, retries - 1);
     }
 
-    return false;
+    // All retries exhausted or non-retryable error
+    logger.error('PDF generation failed after retries', error, {
+      retriesLeft: retries,
+      isRetryable,
+      finalAttempt: true
+    });
+
+    logger.incrementPDFFailure();
+    return { success: false, error: lastError };
+
   } finally {
     // Close the page (not the browser)
     if (page) {
       try {
         await page.close();
       } catch (closeError) {
-        console.error('Error closing page:', closeError);
+        logger.warn('Error closing page during cleanup', { error: closeError.message });
       }
     }
 
@@ -120,7 +138,7 @@ async function generatePDFFromHTML(htmlContent, outputPath, options = {}, retrie
         fs.unlinkSync(htmlPath);
       }
     } catch (cleanupError) {
-      console.error('Error cleaning up HTML file:', cleanupError);
+      logger.warn('Error cleaning up HTML file', { error: cleanupError.message });
     }
   }
 }
@@ -135,10 +153,13 @@ async function generatePDFFromHTML(htmlContent, outputPath, options = {}, retrie
 async function printPDFToThermalPrinter(pdfPath, printerName = null, paperSize = 'A7') {
   try {
     const finalPrinterName = printerName || process.env.PRINTER_NAME || null;
-    console.log(`Attempting to print PDF to ${finalPrinterName || 'default'} printer...`);
+    logger.info(`Sending print job to printer`, {
+      printer: finalPrinterName || 'default',
+      paperSize,
+      pdfPath: path.basename(pdfPath)
+    });
 
     if (printer) {
-
       const options = {
         printer: finalPrinterName,
         copies: 1,
@@ -147,14 +168,19 @@ async function printPDFToThermalPrinter(pdfPath, printerName = null, paperSize =
         margin: '0'
       };
 
-
       await printer.print(pdfPath, options);
+      logger.debug('Print job sent successfully', { printer: finalPrinterName });
       return 'Print job sent successfully';
     } else {
+      logger.incrementPrinterFailure();
       throw new Error('pdf-to-printer module not available');
     }
   } catch (error) {
-    console.error('Failed to print PDF:', error);
+    logger.error('Failed to print PDF', error, {
+      printer: printerName,
+      pdfPath: path.basename(pdfPath)
+    });
+    logger.incrementPrinterFailure();
     throw error;
   }
 }
@@ -168,17 +194,31 @@ async function printPDFToThermalPrinter(pdfPath, printerName = null, paperSize =
  * @returns {Promise<object>} - Returns result object with success status
  */
 async function printHTML(htmlContent, printerName, pdfOptions = {}, printPaperSize = 'A7') {
+  const startTime = Date.now();
   try {
     const timestamp = Date.now();
     const pdfPath = path.join(tempDir, `print-${timestamp}.pdf`);
 
-    console.log(`Generating PDF for printer: ${printerName}`);
+    logger.info(`Starting print job`, {
+      printer: printerName,
+      paperSize: printPaperSize
+    });
 
     // Generate PDF
-    const pdfGenerated = await generatePDFFromHTML(htmlContent, pdfPath, pdfOptions);
+    const pdfResult = await generatePDFFromHTML(htmlContent, pdfPath, pdfOptions);
 
-    if (!pdfGenerated) {
-      throw new Error('Failed to generate PDF');
+    if (!pdfResult.success) {
+      // Error already logged in generatePDFFromHTML
+      logger.incrementPrintJob(false);
+      return {
+        success: false,
+        error: pdfResult.error.message,
+        errorType: 'PDF_GENERATION_FAILED',
+        errorDetails: {
+          message: pdfResult.error.message,
+          type: pdfResult.error.constructor.name
+        }
+      };
     }
 
     // Print PDF
@@ -187,11 +227,18 @@ async function printHTML(htmlContent, printerName, pdfOptions = {}, printPaperSi
     // Clean up PDF file
     try {
       if (fs.existsSync(pdfPath)) {
-        fs.unlinkSync(pdfPath); // COMMENTED OUT FOR DEBUGGING
+        fs.unlinkSync(pdfPath);
       }
     } catch (cleanupError) {
-      console.error('Error cleaning up PDF file:', cleanupError);
+      logger.warn('Error cleaning up PDF file', { error: cleanupError.message });
     }
+
+    const duration = Date.now() - startTime;
+    logger.info(`Print job completed successfully`, {
+      printer: printerName,
+      duration: `${duration}ms`
+    });
+    logger.incrementPrintJob(true);
 
     return {
       success: true,
@@ -199,10 +246,21 @@ async function printHTML(htmlContent, printerName, pdfOptions = {}, printPaperSi
     };
 
   } catch (error) {
-    console.error('Error in printHTML:', error);
+    const duration = Date.now() - startTime;
+    logger.error('Print job failed', error, {
+      printer: printerName,
+      duration: `${duration}ms`
+    });
+    logger.incrementPrintJob(false);
+
     return {
       success: false,
-      error: error.message
+      error: error.message,
+      errorType: 'PRINT_FAILED',
+      errorDetails: {
+        message: error.message,
+        type: error.constructor.name
+      }
     };
   }
 }
@@ -213,8 +271,12 @@ async function printHTML(htmlContent, printerName, pdfOptions = {}, printPaperSi
  * @returns {Promise<object>} - Returns results for each job
  */
 async function printBatch(printJobs) {
+  const startTime = Date.now();
   try {
-    console.log(`Processing batch of ${printJobs.length} print jobs...`);
+    logger.info(`Processing print batch`, {
+      jobCount: printJobs.length,
+      jobTypes: printJobs.map(j => j.type).join(', ')
+    });
 
     // Process all jobs in parallel
     const results = await Promise.allSettled(
@@ -226,7 +288,14 @@ async function printBatch(printJobs) {
           const content = useJSON ? jsonContent : htmlContent;
 
           if (!content || !printerName) {
-            throw new Error(`Invalid job ${index}: missing content or printer name`);
+            const error = new Error(`Invalid job ${index}: missing content or printer name`);
+            logger.warn('Invalid print job in batch', {
+              jobIndex: index,
+              type,
+              hasContent: !!content,
+              hasPrinter: !!printerName
+            });
+            throw error;
           }
 
           const result = await printHTML(content, printerName, pdfOptions, paperSize);
@@ -236,6 +305,10 @@ async function printBatch(printJobs) {
             ...result
           };
         } catch (error) {
+          logger.error('Batch print job failed', error, {
+            jobIndex: index,
+            jobType: job.type
+          });
           return {
             type: job.type,
             success: false,
@@ -245,29 +318,54 @@ async function printBatch(printJobs) {
       })
     );
 
-    // Format results
+    // Format results and count successes/failures
     const formattedResults = {};
+    let successCount = 0;
+    let failureCount = 0;
+
     results.forEach((result, index) => {
       const jobType = printJobs[index].type;
       if (result.status === 'fulfilled') {
         formattedResults[jobType] = result.value;
+        if (result.value.success) {
+          successCount++;
+        } else {
+          failureCount++;
+        }
       } else {
         formattedResults[jobType] = {
           success: false,
           error: result.reason.message
         };
+        failureCount++;
       }
     });
 
-    console.log('Batch print completed');
+    const duration = Date.now() - startTime;
+    logger.info('Batch print completed', {
+      totalJobs: printJobs.length,
+      successful: successCount,
+      failed: failureCount,
+      duration: `${duration}ms`
+    });
+
     return {
       success: true,
       message: 'Batch print completed',
-      results: formattedResults
+      results: formattedResults,
+      stats: {
+        total: printJobs.length,
+        successful: successCount,
+        failed: failureCount
+      }
     };
 
   } catch (error) {
-    console.error('Error in batch print:', error);
+    const duration = Date.now() - startTime;
+    logger.error('Batch print operation failed', error, {
+      duration: `${duration}ms`,
+      jobCount: printJobs.length
+    });
     return {
       success: false,
       error: error.message
