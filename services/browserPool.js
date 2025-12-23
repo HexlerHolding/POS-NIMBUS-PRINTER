@@ -113,20 +113,21 @@ class BrowserPool {
     const browser = this.browsers[index];
     const stats = this.browserStats[index];
 
-    if (!stats) return;
-
+    // If stats is null but we're checking, it means browser disconnected
+    // We should attempt restart instead of returning early
     const shouldRestart =
       !browser ||
+      !stats ||
       !(await this.isBrowserHealthy(browser)) ||
-      stats.operationCount >= this.restartThreshold ||
-      (Date.now() - stats.lastRestart) >= this.restartInterval;
+      (stats && stats.operationCount >= this.restartThreshold) ||
+      (stats && (Date.now() - stats.lastRestart) >= this.restartInterval);
 
     if (shouldRestart) {
       logger.info(`Restarting browser`, {
         browserIndex: index + 1,
         reason,
-        operationCount: stats.operationCount,
-        uptimeMs: Date.now() - stats.lastRestart
+        operationCount: stats?.operationCount || 0,
+        uptimeMs: stats ? (Date.now() - stats.lastRestart) : 0
       });
 
       // Close old browser
@@ -186,12 +187,13 @@ class BrowserPool {
 
       if (currentBrowser && await this.isBrowserHealthy(currentBrowser)) {
         // Increment operation count
-        if (stats) {
-          stats.operationCount++;
+        const currentStats = this.browserStats[index];
+        if (currentStats) {
+          currentStats.operationCount++;
         }
         logger.debug('Browser allocated for operation', {
           browserIndex: index + 1,
-          operationCount: stats.operationCount
+          operationCount: currentStats?.operationCount || 0
         });
         return currentBrowser;
       }
