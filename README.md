@@ -86,3 +86,88 @@ Service status and available endpoints.
 - Puppeteer for PDF generation
 - pdf-to-printer for printing functionality
 - CORS for cross-origin requests
+
+Yeah, that works fine — Task Scheduler can absolutely run a `pm2 resurrect` command at startup, you just need to make sure it runs in the right environment so Node and PM2 are available.
+
+Here’s how to set it up cleanly:
+
+---
+
+### ⚙️ Step-by-Step: Run `pm2 resurrect` via Task Scheduler
+
+1. **Make sure PM2 is installed globally**
+
+   ```powershell
+   npm install pm2 -g
+   pm2 start app.js --name my-service
+   pm2 save
+   ```
+
+   That `pm2 save` command stores your current process list so `resurrect` knows what to bring back.
+
+---
+
+2. **Find your Node and PM2 paths**
+   In PowerShell, run:
+
+   ```powershell
+   where node
+   where pm2
+   ```
+
+   You’ll get something like:
+
+   ```
+   C:\Program Files\nodejs\node.exe
+   C:\Users\YourName\AppData\Roaming\npm\pm2.ps1
+   ```
+
+   You’ll need these paths in the next step.
+
+---
+
+3. **Create the Task**
+
+   * Open **Task Scheduler** → *Create Task*.
+   * **General tab**:
+
+     * Name: `PM2 Resurrect`
+     * Check **“Run whether user is logged on or not”**
+     * Check **“Run with highest privileges”**
+   * **Triggers tab**:
+
+     * Add → *At startup*
+   * **Actions tab**:
+
+     * Add new action:
+
+       * **Program/script:**
+         `powershell.exe`
+       * **Arguments:**
+
+         ```powershell
+         -ExecutionPolicy Bypass -Command "C:\Users\YourName\AppData\Roaming\npm\pm2.ps1 resurrect"
+         ```
+       * *(Replace path with your actual PM2 path from step 2)*
+
+---
+
+4. **Optional delay (recommended)**
+   Add a delay trigger (like 30 seconds) so PM2 starts after Windows finishes booting, otherwise it may run before Node’s environment variables are available.
+
+---
+
+5. **Test it**
+
+   * Right-click the task → *Run*.
+   * Then check:
+
+     ```powershell
+     pm2 list
+     ```
+
+     Your apps should be back up.
+
+---
+
+That’s it — now whenever Windows starts, Task Scheduler will quietly run `pm2 resurrect`, reviving your microservices like a necromancer with admin rights.
