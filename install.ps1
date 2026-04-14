@@ -1,0 +1,294 @@
+#Requires -RunAsAdministrator
+
+<#
+.SYNOPSIS
+    Nimbus Printer Service - One-click installer for Windows
+.DESCRIPTION
+    Installs Node.js, Git, and NSSM if missing, clones the repo,
+    installs dependencies, and registers Nimbus Printer as a
+    reliable Windows Service under the current admin user.
+    Must be run as Administrator.
+#>
+
+$ErrorActionPreference = "Stop"
+
+$REPO_URL     = "https://github.com/HexlerHolding/POS-NIMBUS-PRINTER.git"
+$INSTALL_DIR  = "C:\NimbusPrinter"
+$SERVICE_NAME = "NimbusPrinterService"
+$NSSM_DIR     = "C:\nssm"
+$NSSM_ZIP_URL = "https://nssm.cc/release/nssm-2.24.zip"
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+function Write-Step { param($msg) Write-Host "`n[*] $msg" -ForegroundColor Cyan }
+function Write-OK   { param($msg) Write-Host "    [OK] $msg" -ForegroundColor Green }
+function Write-Warn { param($msg) Write-Host "    [!] $msg" -ForegroundColor Yellow }
+function Write-Fail { param($msg) Write-Host "`n[ERROR] $msg" -ForegroundColor Red; pause; exit 1 }
+
+function Update-SessionPath {
+    $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath    = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $env:Path    = "$machinePath;$userPath"
+}
+
+function Install-WithWinget {
+    param([string]$PackageId, [string]$FriendlyName)
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Write-Fail "winget is not available. Install $FriendlyName manually and re-run this script."
+    }
+    Write-Warn "Installing $FriendlyName via winget..."
+    winget install --id $PackageId --exact --silent --accept-package-agreements --accept-source-agreements
+    if ($LASTEXITCODE -ne 0) { Write-Fail "winget failed to install $FriendlyName (exit $LASTEXITCODE)." }
+    Write-OK "$FriendlyName installed."
+    Update-SessionPath
+}
+
+# ── Admin guard ───────────────────────────────────────────────────────────────
+
+$currentPrincipal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host ""
+    Write-Host "  [ERROR] This script must be run as Administrator." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  Right-click PowerShell and choose 'Run as administrator'," -ForegroundColor Yellow
+    Write-Host "  then run the script again." -ForegroundColor Yellow
+    Write-Host ""
+    pause; exit 1
+}
+
+# ── 1. Node.js ────────────────────────────────────────────────────────────────
+
+Write-Step "Checking Node.js..."
+
+$nodeVersion = (node --version 2>$null)
+if (-not $nodeVersion) {
+    Write-Warn "Node.js not found — installing automatically..."
+    Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS"
+    $nodeVersion = (node --version 2>$null)
+    if (-not $nodeVersion) {
+        Write-Fail "Node.js was installed but 'node' is still not in PATH.`n        Please restart this script in a new terminal."
+    }
+}
+
+$major = [int]($nodeVersion.TrimStart('v').Split('.')[0])
+if ($major -lt 16) {
+    Write-Warn "Node.js $nodeVersion is too old (v16+ required) — upgrading..."
+    Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS"
+    $nodeVersion = (node --version 2>$null)
+    $major = [int]($nodeVersion.TrimStart('v').Split('.')[0])
+    if ($major -lt 16) {
+        Write-Fail "Node.js upgrade did not take effect. Please restart this script in a new terminal."
+    }
+}
+
+Write-OK "Node.js $nodeVersion ready."
+
+# ── 2. Git ────────────────────────────────────────────────────────────────────
+
+Write-Step "Checking Git..."
+
+$gitVersion = (git --version 2>$null)
+if (-not $gitVersion) {
+    Write-Warn "Git not found — installing automatically..."
+    Install-WithWinget "Git.Git" "Git"
+    $gitVersion = (git --version 2>$null)
+    if (-not $gitVersion) {
+        Write-Fail "Git was installed but 'git' is still not in PATH.`n        Please restart this script in a new terminal."
+    }
+}
+
+Write-OK "$gitVersion ready."
+
+# ── 3. NSSM ───────────────────────────────────────────────────────────────────
+
+Write-Step "Checking NSSM..."
+
+$nssmExe = (Get-Command nssm -ErrorAction SilentlyContinue)
+$nssmExe = if ($nssmExe) { $nssmExe.Source } else { $null }
+
+if (-not $nssmExe) {
+    # Try winget first
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Warn "Trying to install NSSM via winget..."
+        winget install --id NSSM.NSSM --exact --silent --accept-package-agreements --accept-source-agreements 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Update-SessionPath
+            $nssmExe = (Get-Command nssm -ErrorAction SilentlyContinue)
+            $nssmExe = if ($nssmExe) { $nssmExe.Source } else { $null }
+        }
+    }
+
+    # Fallback: download the portable zip directly from nssm.cc
+    if (-not $nssmExe) {
+        Write-Warn "winget unavailable or failed — downloading NSSM directly..."
+        $zipPath    = "$env:TEMP\nssm.zip"
+        $extractDir = "$env:TEMP\nssm_extract"
+
+        Invoke-WebRequest -Uri $NSSM_ZIP_URL -OutFile $zipPath -UseBasicParsing
+        Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+
+        # Prefer 64-bit binary
+        $nssmBin = Get-ChildItem $extractDir -Recurse -Filter "nssm.exe" |
+                   Where-Object { $_.DirectoryName -match "win64" } |
+                   Select-Object -First 1
+        if (-not $nssmBin) {
+            $nssmBin = Get-ChildItem $extractDir -Recurse -Filter "nssm.exe" | Select-Object -First 1
+        }
+        if (-not $nssmBin) { Write-Fail "Could not find nssm.exe in the downloaded archive." }
+
+        New-Item -ItemType Directory -Force -Path $NSSM_DIR | Out-Null
+        Copy-Item $nssmBin.FullName "$NSSM_DIR\nssm.exe" -Force
+
+        # Add NSSM dir to machine PATH permanently
+        $machinePath = [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+        if ($machinePath -notlike "*$NSSM_DIR*") {
+            [System.Environment]::SetEnvironmentVariable("Path", "$machinePath;$NSSM_DIR", "Machine")
+        }
+        Update-SessionPath
+
+        $nssmExe = "$NSSM_DIR\nssm.exe"
+        Remove-Item $zipPath    -Force -ErrorAction SilentlyContinue
+        Remove-Item $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    if (-not $nssmExe -or -not (Test-Path $nssmExe)) {
+        Write-Fail "Could not install NSSM. Please install it manually from https://nssm.cc and re-run."
+    }
+
+    Write-OK "NSSM installed."
+} else {
+    Write-OK "NSSM found at $nssmExe."
+}
+
+# ── 4. Clone / update repo ────────────────────────────────────────────────────
+
+Write-Step "Setting up repository at $INSTALL_DIR..."
+
+if (Test-Path "$INSTALL_DIR\.git") {
+    Write-Host "    Repository already exists — pulling latest changes..."
+    git -C $INSTALL_DIR pull
+    Write-OK "Repository updated."
+} else {
+    if (Test-Path $INSTALL_DIR) {
+        Write-Host "    Directory exists but is not a git repo — removing and re-cloning..."
+        Remove-Item -Recurse -Force $INSTALL_DIR
+    }
+    git clone $REPO_URL $INSTALL_DIR
+    Write-OK "Repository cloned."
+}
+
+# ── 5. Install npm dependencies ───────────────────────────────────────────────
+
+Write-Step "Installing Node.js dependencies..."
+Set-Location $INSTALL_DIR
+npm install --omit=dev
+if ($LASTEXITCODE -ne 0) { Write-Fail "npm install failed." }
+Write-OK "Dependencies installed."
+
+# ── 6. Configure .env ─────────────────────────────────────────────────────────
+
+Write-Step "Configuring environment..."
+
+if (-not (Test-Path "$INSTALL_DIR\.env")) {
+    if (Test-Path "$INSTALL_DIR\.env.example") {
+        Copy-Item "$INSTALL_DIR\.env.example" "$INSTALL_DIR\.env"
+        Write-OK ".env created from .env.example."
+        Write-Warn "Edit $INSTALL_DIR\.env to customise port, business info, and logo path."
+    } else {
+        Write-Warn "No .env.example found — skipping."
+    }
+} else {
+    Write-OK ".env already exists — skipping."
+}
+
+# ── 7. Prompt for Windows password (needed for service logon) ─────────────────
+
+Write-Step "Service account setup..."
+
+$currentUser = "$env:USERDOMAIN\$env:USERNAME"
+Write-Host "    The service will run as: $currentUser" -ForegroundColor Cyan
+Write-Host "    Windows requires your password to register the service logon account." -ForegroundColor Cyan
+Write-Host "    It is passed directly to the Service Control Manager and not stored by this script." -ForegroundColor Cyan
+
+$credential  = Get-Credential -UserName $currentUser -Message "Enter your Windows login password for '$currentUser'"
+$plainPass   = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+                   [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($credential.Password))
+
+Write-OK "Credentials captured."
+
+# ── 8. Register Windows Service via NSSM ─────────────────────────────────────
+
+Write-Step "Registering '$SERVICE_NAME' as a Windows Service..."
+
+# Stop and remove any existing instance
+$existingSvc = Get-Service -Name $SERVICE_NAME -ErrorAction SilentlyContinue
+if ($existingSvc) {
+    Write-Host "    Existing service found — removing..."
+    if ($existingSvc.Status -eq "Running") {
+        & $nssmExe stop $SERVICE_NAME confirm 2>$null | Out-Null
+        Start-Sleep -Seconds 2
+    }
+    & $nssmExe remove $SERVICE_NAME confirm | Out-Null
+    Start-Sleep -Seconds 2
+}
+
+$nodeExe = (Get-Command node).Source
+
+# Install service
+& $nssmExe install $SERVICE_NAME $nodeExe "`"$INSTALL_DIR\server.js`""
+
+# Configure service
+& $nssmExe set $SERVICE_NAME AppDirectory      $INSTALL_DIR
+& $nssmExe set $SERVICE_NAME ObjectName        $currentUser $plainPass
+& $nssmExe set $SERVICE_NAME Start             SERVICE_AUTO_START
+& $nssmExe set $SERVICE_NAME AppRestartDelay   5000      # 5s pause before restarting after a crash
+& $nssmExe set $SERVICE_NAME AppThrottle       10000     # enforce min 10s between restarts (avoids tight crash loops)
+& $nssmExe set $SERVICE_NAME AppExit           Default Restart
+& $nssmExe set $SERVICE_NAME DisplayName       "Nimbus Printer Service"
+& $nssmExe set $SERVICE_NAME Description       "Nimbus PDF Printer microservice — managed by NSSM"
+
+# Clear password from memory immediately after use
+$plainPass = $null
+[System.GC]::Collect()
+
+Write-OK "Service registered."
+
+# ── 9. Start the service ──────────────────────────────────────────────────────
+
+Write-Step "Starting service..."
+
+& $nssmExe start $SERVICE_NAME
+Start-Sleep -Seconds 4
+
+$svc = Get-Service -Name $SERVICE_NAME -ErrorAction SilentlyContinue
+if ($svc -and $svc.Status -eq "Running") {
+    Write-OK "Service is running!"
+} else {
+    Write-Warn "Service did not reach 'Running' state within 4s."
+    Write-Warn "Check status with:  nssm status $SERVICE_NAME"
+    Write-Warn "View logs with:     Get-EventLog -LogName Application -Source $SERVICE_NAME -Newest 10"
+}
+
+# ── Done ──────────────────────────────────────────────────────────────────────
+
+Write-Host ""
+Write-Host "================================================" -ForegroundColor Green
+Write-Host "  Nimbus Printer Service installed successfully!" -ForegroundColor Green
+Write-Host "================================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "  Install path : $INSTALL_DIR"
+Write-Host "  Config file  : $INSTALL_DIR\.env"
+Write-Host "  API base URL : http://localhost:3002  (see .env for PORT)"
+Write-Host "  Service name : $SERVICE_NAME  (starts automatically on boot)"
+Write-Host ""
+Write-Host "  Useful commands:"
+Write-Host "    nssm status  $SERVICE_NAME"
+Write-Host "    nssm restart $SERVICE_NAME"
+Write-Host "    nssm stop    $SERVICE_NAME"
+Write-Host "    nssm start   $SERVICE_NAME"
+Write-Host ""
+Write-Host "  To uninstall:"
+Write-Host "    nssm stop    $SERVICE_NAME"
+Write-Host "    nssm remove  $SERVICE_NAME confirm"
+Write-Host "    Remove-Item -Recurse -Force $INSTALL_DIR"
+Write-Host ""

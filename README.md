@@ -86,11 +86,6 @@ Service status and available endpoints.
 - Puppeteer for PDF generation
 - pdf-to-printer for printing functionality
 - CORS for cross-origin requests
-
-Yeah, that works fine — Task Scheduler can absolutely run a `pm2 resurrect` command at startup, you just need to make sure it runs in the right environment so Node and PM2 are available.
-
-Here’s how to set it up cleanly:
-
 ---
 
 ### ⚙️ Step-by-Step: Run `pm2 resurrect` via Task Scheduler
