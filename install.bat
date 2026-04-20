@@ -1,22 +1,25 @@
-<# 2>nul
 @echo off
+setlocal
 
-:: ── Elevation check ──────────────────────────────────────────────────────────
+:: ── Self-elevate if not admin ─────────────────────────────────────────────────
 net session >nul 2>&1
 if %errorLevel% neq 0 (
     echo Requesting administrator privileges...
-    powershell -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    powershell -Command "Start-Process '%~f0' -Verb RunAs"
     exit /b
 )
 
-:: ── Run this same file as PowerShell ─────────────────────────────────────────
-powershell -ExecutionPolicy Bypass -File "%~f0" %*
-exit /b
-#>
+:: ── Extract everything after #==PS_START== and run as PowerShell ────────────────
+:: Path passed via env var to avoid quoting issues with apostrophes in usernames
+set "NIMBUS_BAT=%~f0"
+powershell -ExecutionPolicy Bypass -Command "$t=[IO.Path]::Combine($env:TEMP,'nimbus_install.ps1');$m=$false;$l=New-Object Collections.Generic.List[string];foreach($x in [IO.File]::ReadAllLines($env:NIMBUS_BAT,[Text.Encoding]::UTF8)){if($m){$l.Add($x)}elseif($x -eq '#==PS_START=='){$m=$true}};[IO.File]::WriteAllLines($t,$l,[Text.Encoding]::UTF8);& $t;Remove-Item $t -Force -ErrorAction SilentlyContinue"
 
+exit /b
+
+#==PS_START==
 # =============================================================================
-#  Nimbus Printer Service — One-click installer
-#  Double-click install.bat to run. Administrator privileges are auto-requested.
+#  Nimbus Printer Service - Installer
+#  Do not run this file directly. Double-click install.bat instead.
 # =============================================================================
 
 $ErrorActionPreference = "Stop"
@@ -62,30 +65,28 @@ function Install-WithWinget {
 
 $currentPrincipal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Fail "This script must be run as Administrator.`n  Close this window, right-click install.bat, and choose 'Run as administrator'."
+    Write-Fail "This script must be run as Administrator.`n        Close this window and double-click install.bat instead."
 }
 
 # ── 1. Node.js ────────────────────────────────────────────────────────────────
 
 Write-Step "Checking Node.js..."
 
-$nodeVersion = (node --version 2>$null)
+try { $nodeVersion = node --version 2>$null } catch { $nodeVersion = $null }
 if (-not $nodeVersion) {
     Write-Warn "Node.js not found — installing automatically..."
     Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS"
-    $nodeVersion = (node --version 2>$null)
-    if (-not $nodeVersion) {
-        Write-Fail "Node.js was installed but 'node' is still not in PATH.`n        Please restart this script in a new terminal."
-    }
+    try { $nodeVersion = node --version 2>$null } catch { $nodeVersion = $null }
+    if (-not $nodeVersion) { Write-Fail "Node.js installed but 'node' not in PATH. Re-run this script." }
 }
 
 $major = [int]($nodeVersion.TrimStart('v').Split('.')[0])
 if ($major -lt 16) {
     Write-Warn "Node.js $nodeVersion is too old (v16+ required) — upgrading..."
     Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS"
-    $nodeVersion = (node --version 2>$null)
+    try { $nodeVersion = node --version 2>$null } catch { $nodeVersion = $null }
     $major = [int]($nodeVersion.TrimStart('v').Split('.')[0])
-    if ($major -lt 16) { Write-Fail "Node.js upgrade did not take effect. Please restart this script." }
+    if ($major -lt 16) { Write-Fail "Node.js upgrade did not take effect. Re-run this script." }
 }
 
 Write-OK "Node.js $nodeVersion ready."
@@ -94,12 +95,12 @@ Write-OK "Node.js $nodeVersion ready."
 
 Write-Step "Checking Git..."
 
-$gitVersion = (git --version 2>$null)
+try { $gitVersion = git --version 2>$null } catch { $gitVersion = $null }
 if (-not $gitVersion) {
     Write-Warn "Git not found — installing automatically..."
     Install-WithWinget "Git.Git" "Git"
-    $gitVersion = (git --version 2>$null)
-    if (-not $gitVersion) { Write-Fail "Git was installed but 'git' is still not in PATH. Please restart this script." }
+    try { $gitVersion = git --version 2>$null } catch { $gitVersion = $null }
+    if (-not $gitVersion) { Write-Fail "Git installed but 'git' not in PATH. Re-run this script." }
 }
 
 Write-OK "$gitVersion ready."
@@ -112,7 +113,6 @@ $nssmCmd = Get-Command nssm -ErrorAction SilentlyContinue
 $nssmExe = if ($nssmCmd) { $nssmCmd.Source } else { $null }
 
 if (-not $nssmExe) {
-    # Try winget first
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Warn "Trying to install NSSM via winget..."
         winget install --id NSSM.NSSM --exact --silent --accept-package-agreements --accept-source-agreements 2>$null
@@ -123,7 +123,6 @@ if (-not $nssmExe) {
         }
     }
 
-    # Fallback: download portable zip from nssm.cc
     if (-not $nssmExe) {
         Write-Warn "Downloading NSSM directly..."
         $zipPath    = "$env:TEMP\nssm.zip"
@@ -155,7 +154,7 @@ if (-not $nssmExe) {
     }
 
     if (-not $nssmExe -or -not (Test-Path $nssmExe)) {
-        Write-Fail "Could not install NSSM. Please install it manually from https://nssm.cc and re-run."
+        Write-Fail "Could not install NSSM. Install it manually from https://nssm.cc and re-run."
     }
 
     Write-OK "NSSM installed."
@@ -213,11 +212,19 @@ Write-Host "    The service will run as: $currentUser" -ForegroundColor Cyan
 Write-Host "    Windows requires your password to register the service logon account." -ForegroundColor Cyan
 Write-Host "    It is passed directly to the Service Control Manager and not stored by this script." -ForegroundColor Cyan
 
-$credential = Get-Credential -UserName $currentUser -Message "Enter your Windows login password for '$currentUser'"
-$plainPass  = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
-                  [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($credential.Password))
+$credential = Get-Credential -UserName $currentUser -Message "Enter your Windows login password for '$currentUser' (leave blank if your account has no password)"
+if (-not $credential) { Write-Fail "No credentials provided. Installation cancelled." }
 
-Write-OK "Credentials captured."
+$plainPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+                 [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($credential.Password))
+
+if ([string]::IsNullOrEmpty($plainPass)) {
+    Write-Warn "No password entered — service will run as LocalSystem (full system privileges, recommended for passwordless accounts)."
+    $runAsLocalSystem = $true
+} else {
+    $runAsLocalSystem = $false
+    Write-OK "Credentials captured."
+}
 
 # ── 8. Register Windows Service via NSSM ─────────────────────────────────────
 
@@ -238,7 +245,11 @@ $nodeExe = (Get-Command node).Source
 
 & $nssmExe install $SERVICE_NAME $nodeExe "`"$INSTALL_DIR\server.js`""
 & $nssmExe set $SERVICE_NAME AppDirectory    $INSTALL_DIR
-& $nssmExe set $SERVICE_NAME ObjectName      $currentUser $plainPass
+if ($runAsLocalSystem) {
+    & $nssmExe set $SERVICE_NAME ObjectName LocalSystem
+} else {
+    & $nssmExe set $SERVICE_NAME ObjectName $currentUser $plainPass
+}
 & $nssmExe set $SERVICE_NAME Start           SERVICE_AUTO_START
 & $nssmExe set $SERVICE_NAME AppRestartDelay 5000
 & $nssmExe set $SERVICE_NAME AppThrottle     10000
@@ -246,8 +257,7 @@ $nodeExe = (Get-Command node).Source
 & $nssmExe set $SERVICE_NAME DisplayName     "Nimbus Printer Service"
 & $nssmExe set $SERVICE_NAME Description     "Nimbus PDF Printer microservice — managed by NSSM"
 
-$plainPass = $null
-[System.GC]::Collect()
+if (-not $runAsLocalSystem) { $plainPass = $null; [System.GC]::Collect() }
 
 Write-OK "Service registered."
 
