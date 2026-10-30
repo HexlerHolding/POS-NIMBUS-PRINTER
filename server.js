@@ -76,15 +76,11 @@ app.post('/api/print', async (req, res) => {
     }
 
     if (!printerName) {
-      logger.warn('Print request rejected - missing printer name');
-      return res.status(400).json({
-        success: false,
-        message: 'Printer name is required'
-      });
+      logger.warn('No printer name specified, using default system printer');
     }
 
     logger.info('Print request received', {
-      printer: printerName,
+      printer: printerName || '(default)',
       paperSize: paperSize || 'A7'
     });
 

@@ -287,15 +287,20 @@ async function printBatch(printJobs) {
           // Use JSON or HTML content based on flag
           const content = useJSON ? jsonContent : htmlContent;
 
-          if (!content || !printerName) {
-            const error = new Error(`Invalid job ${index}: missing content or printer name`);
-            logger.warn('Invalid print job in batch', {
+          if (!content) {
+            const error = new Error(`Invalid job ${index}: missing content`);
+            logger.warn('Invalid print job in batch - missing content', {
               jobIndex: index,
               type,
-              hasContent: !!content,
-              hasPrinter: !!printerName
             });
             throw error;
+          }
+
+          if (!printerName) {
+            logger.warn('No printer name specified for job, using default system printer', {
+              jobIndex: index,
+              type,
+            });
           }
 
           const result = await printHTML(content, printerName, pdfOptions, paperSize);
