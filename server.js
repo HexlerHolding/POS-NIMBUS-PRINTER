@@ -172,6 +172,82 @@ app.post('/api/print-batch', async (req, res) => {
 });
 
 
+/**
+ * Test Print Endpoint
+ * Prints a simple test receipt to verify printer connectivity
+ * POST /api/test-print
+ * Body: { printerName: string }
+ */
+app.post('/api/test-print', async (req, res) => {
+  try {
+    const { printerName } = req.body;
+
+    const testHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: monospace; font-size: 12px; margin: 0; padding: 5mm; width: 62mm; }
+  .center { text-align: center; }
+  .line { border-top: 1px dashed #000; margin: 4px 0; }
+  .bold { font-weight: bold; }
+</style>
+</head>
+<body>
+  <div class="center bold" style="font-size:16px;">*** TEST PRINT ***</div>
+  <div class="line"></div>
+  <div class="center">Nimbus Printer Service</div>
+  <div class="center">Connection OK</div>
+  <div class="line"></div>
+  <div>Printer: ${printerName || 'Default'}</div>
+  <div>Time: ${new Date().toLocaleString('en-US', { timeZone: 'Asia/Karachi' })} PKT</div>
+  <div class="line"></div>
+  <div class="center bold">*** END TEST ***</div>
+</body>
+</html>`;
+
+    logger.info('Test print requested', { printer: printerName || '(default)' });
+
+    const printResult = await printHTML(
+      testHtml,
+      printerName || null,
+      { width: '72mm', height: '80mm', margin: { top: '3mm', right: '3mm', bottom: '3mm', left: '3mm' } },
+      'A7'
+    );
+
+    if (printResult.success) {
+      res.json({ success: true, message: 'Test print sent successfully' });
+    } else {
+      res.status(500).json({ success: false, message: printResult.error || 'Test print failed', errorType: printResult.errorType });
+    }
+  } catch (error) {
+    logger.error('Unexpected error in test-print endpoint', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * List Printers Endpoint
+ * Returns available printers on the system
+ * GET /api/printers
+ */
+app.get('/api/printers', async (req, res) => {
+  try {
+    let printer;
+    try {
+      printer = require('pdf-to-printer');
+    } catch (e) {
+      return res.status(500).json({ success: false, message: 'pdf-to-printer not available' });
+    }
+
+    const printers = await printer.getPrinters();
+    res.json({ success: true, printers });
+  } catch (error) {
+    logger.error('Error listing printers', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 app.listen(PORT, async () => {
   logger.info(`====================================`);
   logger.info(`Nimbus Printer Microservice`);
