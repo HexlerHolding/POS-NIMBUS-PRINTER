@@ -15,18 +15,25 @@ class BrowserPool {
   async launchBrowser(index) {
     try {
       logger.info(`Launching browser instance`, { browserIndex: index + 1 });
-      const browser = await puppeteer.launch({
+      const launchOptions = {
         headless: 'new',
         args: [
           '--no-sandbox',
           '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage', // Overcome limited resource problems
+          '--disable-dev-shm-usage',
           '--disable-accelerated-2d-canvas',
           '--no-first-run',
           '--no-zygote',
           '--disable-gpu'
         ]
-      });
+      };
+
+      // Use system Chromium when running in Docker (set via PUPPETEER_EXECUTABLE_PATH)
+      if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+        launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      }
+
+      const browser = await puppeteer.launch(launchOptions);
 
       // Handle browser disconnection
       browser.on('disconnected', () => {
